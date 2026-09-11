@@ -62,11 +62,37 @@ window.FW = window.FW || {};
   /* ---------- persistence ---------- */
   var persist = U.debounce(function () {
     U.save('tasks', state.tasks);
-    U.save('docs', state.docs);
     U.save('citations', state.citations);
     U.save('snippets', state.snippets);
     U.save('settings', state.settings);
     U.save('activeTaskId', state.activeTaskId);
+
+    /* Documents carry version history and are by far the largest value. If the
+       browser refuses it, shed old versions and retry — losing history is
+       recoverable, losing the draft is not. */
+    if (U.save('docs', state.docs)) return;
+
+    /* Shed version history in escalating steps. The draft outranks its history:
+       history is a convenience, an unsaved draft is lost work. */
+    var budgets = [HISTORY_MAX_BYTES / 4, HISTORY_MAX_BYTES / 16];
+    for (var i = 0; i < budgets.length; i++) {
+      var budget = budgets[i];
+      Object.keys(state.docs).forEach(function (id) { trimHistory(state.docs[id], budget); });
+      if (U.save('docs', state.docs)) { emit('storage:trimmed', state.docs); return; }
+    }
+
+    Object.keys(state.docs).forEach(function (id) { state.docs[id].history = []; });
+    if (U.save('docs', state.docs)) { emit('storage:trimmed', state.docs); return; }
+
+    /* Last resort: persist the drafts alone, stripped of everything optional. */
+    var minimal = {};
+    Object.keys(state.docs).forEach(function (id) {
+      var d = state.docs[id];
+      minimal[id] = { id: d.id, taskId: d.taskId, title: d.title, html: d.html, updatedAt: d.updatedAt, history: [] };
+    });
+    if (U.save('docs', minimal)) { emit('storage:trimmed', state.docs); return; }
+
+    emit('storage:full', state.docs);
   }, 300);
 
   /* The browser can be closed inside the autosave window, so flush on the way out. */
@@ -210,14 +236,62 @@ window.FW = window.FW || {};
     return doc;
   }
 
-  function saveDoc(docId, html, opts) {
+  /* Version history is bounded by entry count AND bytes: localStorage is a shared
+     ~5MB budget, and a long draft snapshotted 30 times would evict the whole
+     workspace rather than just old versions. */
+  var HISTORY_MAX_ENTRIES = 30;
+  var HISTORY_MAX_BYTES = 400000;
+  var HISTORY_MIN_KEEP = 3;
+
+  function historyBytes(doc) {
+    return (doc.history || []).reduce(function (n, h) { return n + (h.html || '').length; }, 0);
+  }
+
+  function trimHistory(doc, maxBytes) {
+    if (!doc.history) { doc.history = []; return; }
+    if (doc.history.length > HISTORY_MAX_ENTRIES) doc.history.length = HISTORY_MAX_ENTRIES;
+    var budget = maxBytes === undefined ? HISTORY_MAX_BYTES : maxBytes;
+    var bytes = 0;
+    for (var i = 0; i < doc.history.length; i++) {
+      bytes += (doc.history[i].html || '').length;
+      if (bytes > budget && i >= HISTORY_MIN_KEEP) { doc.history.length = i; return; }
+    }
+  }
+
+  /* Capture the document as it stands right now. Callers snapshot *before* a
+     destructive change ("before …") or *after* a milestone ("outline scaffold"). */
+  function snapshotDoc(docId, label, html) {
     var doc = state.docs[docId];
     if (!doc) return null;
-    opts = opts || {};
-    if (opts.snapshot && doc.html && doc.html !== html) {
-      doc.history.unshift({ at: Date.now(), html: doc.html, label: opts.label || 'snapshot' });
-      doc.history = doc.history.slice(0, 25);
+    var content = html === undefined ? doc.html : html;
+    if (!content || !U.stripHtml(content).trim()) return null;
+
+    var newest = doc.history[0];
+    if (newest && newest.html === content) {
+      /* Same content already captured — relabel rather than store it twice. */
+      newest.at = Date.now();
+      if (label) newest.label = label;
+      persist();
+      return newest;
     }
+
+    var entry = {
+      at: Date.now(),
+      html: content,
+      label: label || 'snapshot',
+      words: U.wordCount(U.stripHtml(content))
+    };
+    doc.history.unshift(entry);
+    trimHistory(doc);
+    persist();
+    emit('doc:snapshot', { doc: doc, entry: entry });
+    return entry;
+  }
+
+  function saveDoc(docId, html) {
+    var doc = state.docs[docId];
+    if (!doc) return null;
+    if (doc.html === html) return doc;
     doc.html = html;
     doc.updatedAt = Date.now();
     persist();
@@ -229,13 +303,20 @@ window.FW = window.FW || {};
     var doc = state.docs[docId];
     if (!doc || !doc.history[index]) return null;
     var entry = doc.history[index];
-    doc.history.unshift({ at: Date.now(), html: doc.html, label: 'before restore' });
+    /* Restoring is itself undoable. */
+    snapshotDoc(docId, 'before restoring an earlier version');
     doc.html = entry.html;
     doc.updatedAt = Date.now();
     persist();
     emit('doc:saved', doc);
     emit('doc:restored', doc);
     return doc;
+  }
+
+  function historyStats(docId) {
+    var doc = state.docs[docId];
+    if (!doc) return { entries: 0, bytes: 0 };
+    return { entries: (doc.history || []).length, bytes: historyBytes(doc) };
   }
 
   /* ---------- citations ---------- */
@@ -341,6 +422,7 @@ window.FW = window.FW || {};
     getTask: getTask, tasksIn: tasksIn, addTask: addTask, updateTask: updateTask,
     removeTask: removeTask, duplicateTask: duplicateTask, moveTask: moveTask,
     getDoc: getDoc, docForTask: docForTask, saveDoc: saveDoc, restoreVersion: restoreVersion,
+    snapshotDoc: snapshotDoc, historyStats: historyStats, trimHistory: trimHistory,
     addCitation: addCitation, removeCitation: removeCitation,
     addSnippet: addSnippet, removeSnippet: removeSnippet,
     setSetting: setSetting, setActiveTask: setActiveTask, setView: setView,

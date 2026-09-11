@@ -536,7 +536,11 @@ window.FW = window.FW || {};
         html.push('<h2>' + U.escapeHtml(o.text) + '</h2>');
         html.push('<p><em>' + U.escapeHtml((o.words ? '~' + o.words + ' words. ' : '') + 'Draft this section.') + '</em></p>');
       });
-      S.saveDoc(doc.id, html.join('\n'), { snapshot: true, label: 'outline scaffold' });
+      /* Keep whatever was there, then mark the fresh outline as its own
+         restore point so a mangled draft can go back to a clean scaffold. */
+      if (existing.length > 40) S.snapshotDoc(doc.id, 'before the outline was replaced');
+      S.saveDoc(doc.id, html.join('\n'));
+      S.snapshotDoc(doc.id, variant.label + ' outline');
       S.moveTask(taskId, 'drafting', null);
       FW.app.openStudio(taskId);
     }

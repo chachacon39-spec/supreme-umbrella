@@ -81,7 +81,7 @@ window.FW = window.FW || {};
             var html = mode === 'bullets' || mode === 'outline'
               ? '<ul>' + payload.split('\n').map(function (l) { return '<li>' + U.escapeHtml(l.replace(/^[•]\s*/, '')) + '</li>'; }).join('') + '</ul>'
               : '<p>' + U.escapeHtml(payload) + '</p>';
-            api.insertHtml(html);
+            api.insertHtml(html, 'before the summary was inserted');
             K.toast('Inserted');
           }
         }),
@@ -167,7 +167,10 @@ window.FW = window.FW || {};
         el('button', { class: 'btn btn-sm', text: 'Copy', onclick: function () { K.copyAndToast(result.text, 'Paraphrase'); } }),
         src.isSelection ? el('button', {
           class: 'btn btn-sm btn-primary', text: 'Replace selection',
-          onclick: function () { api.replaceSelection(result.text); K.toast('Selection replaced'); }
+          onclick: function () {
+            api.replaceSelection(result.text, 'before the ' + mode + ' paraphrase');
+            K.toast('Selection replaced');
+          }
         }) : null,
         el('button', { class: 'btn btn-sm btn-ghost', text: 'Try again', onclick: run })
       ].filter(Boolean)));
@@ -433,7 +436,7 @@ window.FW = window.FW || {};
                   return '<p style="text-indent:-2em;margin-left:2em">' +
                     U.escapeHtml(l).replace(/&lt;i&gt;/g, '<em>').replace(/&lt;\/i&gt;/g, '</em>') + '</p>';
                 }).join('');
-              api.insertHtml(html);
+              api.insertHtml(html, 'before the reference list was inserted');
               K.toast('Reference list inserted');
             }
           })
@@ -453,7 +456,7 @@ window.FW = window.FW || {};
             el('button', {
               class: 'btn btn-sm', text: 'Insert in-text',
               onclick: function () {
-                api.insertHtml('<mark class="cite-marker">' + U.escapeHtml(FW.citations.inText(entry, styleId)) + '</mark> ');
+                api.insertHtml('<mark class="cite-marker">' + U.escapeHtml(FW.citations.inText(entry, styleId)) + '</mark> ', null);
                 K.toast('In-text citation inserted');
               }
             }),
@@ -528,7 +531,7 @@ window.FW = window.FW || {};
       el('button', {
         class: 'btn btn-sm', text: 'Insert in draft',
         onclick: function () {
-          api.insertHtml('<p><img src="' + FW.imagegen.dataUri(current.svg) + '" alt="' + U.escapeAttr(state.title) + '" width="' + current.width + '"></p>');
+          api.insertHtml('<p><img src="' + FW.imagegen.dataUri(current.svg) + '" alt="' + U.escapeAttr(state.title) + '" width="' + current.width + '"></p>', 'before the image was inserted');
           K.toast('Image inserted');
         }
       })

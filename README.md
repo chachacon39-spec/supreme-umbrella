@@ -139,7 +139,26 @@ machine should not judge is marked for manual sign-off rather than faked.
   ("your rhythm reads as monotonous"), passive and adverb percentages, reading
   and speaking time, and keyword density.
 
-### 8. Typography and export
+### 8. Version history
+
+Every draft keeps a rolling set of restore points. One is taken automatically
+after roughly 90 seconds of active writing (a throttle, not an idle timer — so
+a long uninterrupted session is still captured), on `Ctrl/⌘ + S`, and
+immediately **before** anything that rewrites the draft: replacing the outline,
+inserting a reference list or an image, applying a paraphrase to a selection,
+or running a bulk *Fix all*. Entries are labelled with what happened and how
+many words changed, so the list reads as a history rather than a row of
+timestamps. Restoring is itself undoable — the draft you had is pushed onto the
+history first.
+
+History is bounded by both entry count and bytes, because `localStorage` is a
+single shared budget for the whole workspace. Under storage pressure the app
+sheds old versions in escalating steps and, if it comes to it, drops history
+entirely: a draft that fails to save is lost work, whereas a lost restore point
+is an inconvenience. It tells you when this happens rather than failing
+silently.
+
+### 9. Typography and export
 
 Seventeen typefaces across serif, sans, mono, accessible (Atkinson
 Hyperlegible, OpenDyslexic) and display, with seven deliverable presets
@@ -154,7 +173,7 @@ heading styles, lists and tables — **PDF** via the print dialog, **HTML**
 word count, reading level, keyword usage, compliance summary and sources into
 one block to paste to the client, and a full JSON workspace backup.
 
-### 9. Reference desk
+### 10. Reference desk
 
 Fourteen research libraries — academic, archival, financial filings, open data,
 business intelligence, technical, search and audience research, marketing,
@@ -174,7 +193,7 @@ and boilerplate.
 | `Ctrl/⌘ + Shift + B / E / R` | Board / Studio / Reference |
 | `Ctrl/⌘ + Shift + N`, or `n` | New assignment |
 | `Ctrl/⌘ + Shift + D` | Toggle dark mode |
-| `Ctrl/⌘ + S` | Save a version snapshot |
+| `Ctrl/⌘ + S` | Save a version to history |
 | `Ctrl/⌘ + B / I / U` | Bold / italic / underline |
 | `Ctrl/⌘ + Shift + 1/2/3` | Heading level |
 | `Ctrl/⌘ + 0` | Back to body text |

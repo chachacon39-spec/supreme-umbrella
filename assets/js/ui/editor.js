@@ -31,6 +31,12 @@ window.FW = window.FW || {};
 
     S.on('activeTask:changed', function () { load(S.state.activeTaskId); });
     S.on('settings:changed', applyTypography);
+    S.on('storage:trimmed', function () {
+      K.toast('Storage was full — older draft versions were discarded to keep your work safe');
+    });
+    S.on('storage:full', function () {
+      K.toast('This browser will not store any more. Export a backup now (Export → Export everything).', 'error');
+    });
     return refs;
   }
 
@@ -198,7 +204,12 @@ window.FW = window.FW || {};
 
   function onKeyDown(e) {
     var mod = e.metaKey || e.ctrlKey;
-    if (mod && e.key.toLowerCase() === 's') { e.preventDefault(); saveNow(true); K.toast('Draft saved'); return; }
+    if (mod && e.key.toLowerCase() === 's') {
+      e.preventDefault();
+      takeSnapshot('manual save');
+      K.toast('Saved — version added to history');
+      return;
+    }
     if (mod && e.key.toLowerCase() === 'k') { e.preventDefault(); refs.toolbar.querySelector('[title="Insert link"]').click(); return; }
     if (mod && e.shiftKey && /^[123]$/.test(e.key)) { e.preventDefault(); cmd('formatBlock', 'h' + e.key); return; }
     if (mod && e.key === '0') { e.preventDefault(); cmd('formatBlock', 'p'); return; }
@@ -302,6 +313,16 @@ window.FW = window.FW || {};
     currentDoc = S.docForTask(taskId, true);
     refs.editor.innerHTML = currentDoc.html || '';
     ignored = {};
+    lastRange = null;
+
+    /* Opening a draft that has content but no history leaves nothing to fall
+       back to, so lay down a baseline before the writer touches it. */
+    lastSnapshotAt = Date.now();
+    lastSnapshotWords = editorWords();
+    if (!currentDoc.history.length && lastSnapshotWords > 0) {
+      S.snapshotDoc(currentDoc.id, 'opened');
+    }
+    startSnapshotTimer();
     applyTypography();
     refs.studio.classList.toggle('focus-mode', !!S.state.settings.focusMode);
     if (refs.focusBtn) refs.focusBtn.classList.toggle('is-active', !!S.state.settings.focusMode);
@@ -317,13 +338,55 @@ window.FW = window.FW || {};
     U.clear(refs.status);
   }
 
-  var saveNow = function (snapshot) {
+  function saveNow() {
     if (!currentDoc) return;
-    S.saveDoc(currentDoc.id, refs.editor.innerHTML, snapshot ? { snapshot: true, label: 'manual save' } : null);
-  };
+    S.saveDoc(currentDoc.id, refs.editor.innerHTML);
+  }
 
-  var autosave = U.debounce(function () { saveNow(false); }, 900);
-  var autosnapshot = U.debounce(function () { saveNow(true); }, 120000);
+  var autosave = U.debounce(saveNow, 900);
+
+  /* ---- version snapshots ----
+     A debounce here would be wrong: it fires once writing *stops*, so a long
+     uninterrupted session would never be captured. This is a throttle — at most
+     one automatic snapshot per interval, and only once enough has actually
+     changed to be worth a restore point. */
+  var SNAPSHOT_INTERVAL = 90000;
+  var SNAPSHOT_MIN_WORDS = 25;
+  var SNAPSHOT_TICK = 15000;
+
+  var lastSnapshotAt = 0, lastSnapshotWords = 0, snapshotTimer = null;
+
+  function editorWords() { return U.wordCount(refs.editor ? refs.editor.textContent : ''); }
+
+  /* Capture the draft as it stands. `label` describes the entry. */
+  function takeSnapshot(label) {
+    if (!currentDoc) return null;
+    saveNow();
+    var entry = S.snapshotDoc(currentDoc.id, label);
+    lastSnapshotAt = Date.now();
+    lastSnapshotWords = editorWords();
+    return entry;
+  }
+
+  /* Capture the state *before* a destructive edit, so the edit can be undone. */
+  function snapshotBefore(label) {
+    if (!currentDoc) return null;
+    return takeSnapshot(label);
+  }
+
+  function maybeAutoSnapshot() {
+    if (!currentDoc || !refs.editor) return;
+    if (Date.now() - lastSnapshotAt < SNAPSHOT_INTERVAL) return;
+    var words = editorWords();
+    if (Math.abs(words - lastSnapshotWords) < SNAPSHOT_MIN_WORDS) return;
+    var delta = words - lastSnapshotWords;
+    takeSnapshot('while writing (' + (delta > 0 ? '+' : '') + delta + ' words)');
+  }
+
+  function startSnapshotTimer() {
+    if (snapshotTimer) return;
+    snapshotTimer = setInterval(maybeAutoSnapshot, SNAPSHOT_TICK);
+  }
 
   function onInput() {
     /* Deleting everything can leave an empty <h1> behind; reset to body text. */
@@ -335,7 +398,6 @@ window.FW = window.FW || {};
       }
     }
     autosave();
-    autosnapshot();
     if (S.state.settings.autoCheck) scheduleCheck();
     updateStatus();
   }
@@ -398,6 +460,15 @@ window.FW = window.FW || {};
 
   function issueKey(issue) { return issue.rule + '|' + issue.excerpt; }
 
+  /* A human label for a rule id, for version-history entries. */
+  function describeRule(issue) {
+    var map = {
+      spelling: 'spelling fix', grammar: 'grammar fix', punctuation: 'punctuation fix',
+      style: 'style edit', structure: 'structure edit', inclusive: 'wording change'
+    };
+    return map[issue.type] || 'edit';
+  }
+
   /* execCommand('insertHTML') rewrites markup (it turns <mark> into a styled span),
      so build the nodes ourselves and drop them in through the Range API. */
   function insertHtmlAt(html) {
@@ -458,7 +529,7 @@ window.FW = window.FW || {};
       if (node.nodeType === 3) node.nodeValue = node.nodeValue.replace(/ {2,}/g, ' ');
     }
     refs.editor.normalize();
-    saveNow(false);
+    saveNow();
     runCheck();
     K.toast('Fix applied');
   }
@@ -469,6 +540,7 @@ window.FW = window.FW || {};
       return i.rule === rule && i.fix !== null && i.fix !== undefined && !ignored[issueKey(i)];
     });
     if (!list.length) return;
+    snapshotBefore('before fixing ' + list.length + ' × ' + describeRule(list[0]));
     /* Work back to front so earlier offsets stay valid. */
     list.sort(function (a, b) { return b.start - a.start; }).forEach(function (issue) {
       var range = rangeFor(lastResult.map, issue.start, issue.end);
@@ -477,7 +549,7 @@ window.FW = window.FW || {};
       if (issue.fix !== '') range.insertNode(document.createTextNode(issue.fix));
     });
     refs.editor.normalize();
-    saveNow(false);
+    saveNow();
     runCheck();
     K.toast('Applied ' + list.length + ' ' + U.pluralize(list.length, 'fix', 'fixes'));
   }
@@ -1061,35 +1133,132 @@ window.FW = window.FW || {};
   }
 
   /* ================= history ================= */
+  function relativeTime(ts) {
+    var secs = Math.round((Date.now() - ts) / 1000);
+    if (secs < 45) return 'just now';
+    var mins = Math.round(secs / 60);
+    if (mins < 60) return mins + ' ' + U.pluralize(mins, 'minute') + ' ago';
+    var hours = Math.round(mins / 60);
+    if (hours < 24) return hours + ' ' + U.pluralize(hours, 'hour') + ' ago';
+    var days = Math.round(hours / 24);
+    if (days < 7) return days + ' ' + U.pluralize(days, 'day') + ' ago';
+    return new Date(ts).toLocaleDateString();
+  }
+
   function openHistory() {
-    if (!currentDoc) return;
+    if (!currentDoc) { K.toast('Open an assignment first', 'error'); return; }
+
     var body = el('div', {});
-    if (!currentDoc.history.length) {
-      body.appendChild(el('div', { class: 'empty', text: 'No earlier versions yet. Snapshots are taken when you save with Ctrl+S and every couple of minutes while you write.' }));
-    } else {
+
+    function draw() {
+      U.clear(body);
+      var currentWords = editorWords();
+      var stats = S.historyStats(currentDoc.id);
+
+      body.appendChild(el('div', { class: 'spread', style: { marginBottom: '12px', flexWrap: 'wrap' } }, [
+        el('div', { class: 'small muted' }, [
+          el('span', { text: 'A version is kept every ' + Math.round(SNAPSHOT_INTERVAL / 60000) +
+            ' minutes of active writing, whenever you press Ctrl+S, and before anything that rewrites the draft.' })
+        ]),
+        el('button', {
+          class: 'btn btn-sm btn-primary', text: 'Save a version now',
+          onclick: function () {
+            var entry = takeSnapshot('manual save');
+            K.toast(entry ? 'Version saved' : 'Nothing to save yet', entry ? undefined : 'error');
+            draw();
+          }
+        })
+      ]));
+
+      body.appendChild(el('div', { class: 'stat-grid', style: { marginBottom: '14px' } }, [
+        tile(currentWords.toLocaleString(), 'Words now'),
+        tile(String(stats.entries), 'Versions kept'),
+        tile(Math.max(1, Math.round(stats.bytes / 1024)) + ' KB', 'History size')
+      ]));
+
+      if (!currentDoc.history.length) {
+        body.appendChild(el('div', { class: 'empty' }, [
+          el('div', { text: 'No earlier versions yet.' }),
+          el('div', { class: 'tiny dim', style: { marginTop: '6px' },
+            text: 'Keep writing and one will be kept automatically, or save a version now.' })
+        ]));
+        return;
+      }
+
       currentDoc.history.forEach(function (h, i) {
-        var preview = U.stripHtml(h.html).slice(0, 150);
-        body.appendChild(el('div', { class: 'card', style: { marginBottom: '8px' } }, [
-          el('div', { class: 'spread' }, [
-            el('div', {}, [
-              el('strong', { style: { fontSize: '13px' }, text: new Date(h.at).toLocaleString() }),
-              el('div', { class: 'tiny dim', text: h.label + ' · ' + U.wordCount(U.stripHtml(h.html)).toLocaleString() + ' words' })
+        var words = h.words !== undefined ? h.words : U.wordCount(U.stripHtml(h.html));
+        var delta = words - currentWords;
+        var preview = U.stripHtml(h.html).replace(/\s+/g, ' ').trim().slice(0, 190);
+        var isCurrent = h.html === refs.editor.innerHTML;
+
+        body.appendChild(el('div', {
+          class: 'card',
+          style: { marginBottom: '8px', borderColor: isCurrent ? 'var(--accent)' : '' }
+        }, [
+          el('div', { class: 'spread', style: { flexWrap: 'wrap', gap: '8px' } }, [
+            el('div', { class: 'grow', style: { minWidth: '180px' } }, [
+              el('div', { class: 'flex wrap', style: { gap: '6px' } }, [
+                el('strong', { style: { fontSize: '13px' }, text: U.sentenceCase(h.label) }),
+                isCurrent ? el('span', { class: 'chip chip-ok', text: 'matches the draft' }) : null
+              ].filter(Boolean)),
+              el('div', { class: 'tiny dim', style: { marginTop: '3px' },
+                text: relativeTime(h.at) + ' · ' + new Date(h.at).toLocaleTimeString() +
+                  ' · ' + words.toLocaleString() + ' words' +
+                  (delta === 0 ? '' : ' (' + (delta > 0 ? '+' : '') + delta.toLocaleString() + ' vs now)') })
             ]),
-            el('button', {
-              class: 'btn btn-sm', text: 'Restore',
-              onclick: function () {
-                S.restoreVersion(currentDoc.id, i);
-                refs.editor.innerHTML = currentDoc.html;
-                runCheck();
-                K.toast('Version restored');
-              }
-            })
+            el('div', { class: 'flex', style: { gap: '5px' } }, [
+              el('button', {
+                class: 'btn btn-sm btn-ghost', text: 'Preview',
+                onclick: function () { previewVersion(h, i); }
+              }),
+              el('button', {
+                class: 'btn btn-sm', text: 'Restore', disabled: isCurrent || null,
+                onclick: function () { restore(i); }
+              })
+            ])
           ]),
-          el('p', { class: 'small muted', style: { margin: '8px 0 0' }, text: preview + (preview.length >= 150 ? '…' : '') })
+          el('p', { class: 'small muted', style: { margin: '8px 0 0' },
+            text: preview + (preview.length >= 190 ? '…' : '') })
         ]));
       });
     }
-    K.modal({ title: 'Version history', size: 'lg', body: body, actions: [{ label: 'Close' }] });
+
+    function restore(index) {
+      S.restoreVersion(currentDoc.id, index);
+      refs.editor.innerHTML = currentDoc.html;
+      lastSnapshotAt = Date.now();
+      lastSnapshotWords = editorWords();
+      runCheck();
+      draw();
+      K.toast('Version restored — the draft you had is in history too');
+    }
+
+    function previewVersion(entry, index) {
+      var pane = el('div', {
+        style: {
+          maxHeight: '58vh', overflowY: 'auto', padding: '16px',
+          border: '1px solid var(--border)', borderRadius: 'var(--radius)',
+          background: 'var(--surface)', fontFamily: FW.resources.font(S.state.settings.font).stack,
+          lineHeight: '1.6'
+        }
+      });
+      pane.innerHTML = entry.html;
+      K.modal({
+        title: U.sentenceCase(entry.label) + ' — ' + relativeTime(entry.at),
+        size: 'lg',
+        body: pane,
+        actions: [
+          { label: 'Close' },
+          {
+            label: 'Restore this version', variant: 'primary',
+            onClick: function () { restore(index); }
+          }
+        ]
+      });
+    }
+
+    draw();
+    K.modal({ title: 'Version history', size: 'lg', body: body, actions: [{ label: 'Done' }] });
   }
 
   /* ================= public API for the tools pane ================= */
@@ -1105,22 +1274,26 @@ window.FW = window.FW || {};
         if (!refs.editor.contains(sel.anchorNode)) return '';
         return sel.toString();
       },
-      replaceSelection: function (text) {
+      replaceSelection: function (text, label) {
+        if (label) snapshotBefore(label);
         refs.editor.focus();
         document.execCommand('insertText', false, text);
         onInput();
       },
-      insertHtml: function (html) {
+      insertHtml: function (html, label) {
+        if (label) snapshotBefore(label);
         insertHtmlAt(html);
         onInput();
         runCheck();
       },
       setHtml: function (html, label) {
-        if (currentDoc) S.saveDoc(currentDoc.id, refs.editor.innerHTML, { snapshot: true, label: label || 'before tool change' });
+        snapshotBefore(label || 'before a tool replaced the draft');
         refs.editor.innerHTML = html;
-        saveNow(false);
+        saveNow();
         runCheck();
       },
+      snapshot: function (label) { return takeSnapshot(label); },
+      snapshotBefore: snapshotBefore,
       getResult: function () { return lastResult; },
       recheck: runCheck,
       highlightSpans: function (spans) {
