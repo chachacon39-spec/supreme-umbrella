@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Quill &amp; Ledger — freelance writing desk</title>
+<meta name="description" content="A freelance writer's workspace: assignment board, brief analyser, three writing approaches per task, live grammar and structure checking, summariser, paraphraser, originality check, citations, image generator and exports.">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✒️</text></svg>">
+<link rel="stylesheet" href="assets/css/base.css">
+<link rel="stylesheet" href="assets/css/app.css">
+</head>
+<body>
+
+<div id="app">
+  <header class="topbar" id="topbar"></header>
+
+  <main class="view is-active" id="view-board"></main>
+  <main class="view" id="view-studio"></main>
+  <main class="view" id="view-resources"></main>
+</div>
+
+<div id="toasts" aria-live="polite"></div>
+
+<noscript>
+  <p style="padding:2rem;font-family:system-ui">Quill &amp; Ledger needs JavaScript — the whole application runs in your browser, with no server behind it.</p>
+</noscript>
+
+<!-- data -->
+<script src="assets/js/util.js"></script>
+<script src="assets/js/data/personas.js"></script>
+<script src="assets/js/data/lexicons.js"></script>
+<script src="assets/js/data/resources.js"></script>
+
+<!-- engines -->
+<script src="assets/js/core/store.js"></script>
+<script src="assets/js/core/brief.js"></script>
+<script src="assets/js/core/styles.js"></script>
+<script src="assets/js/core/analyzer.js"></script>
+<script src="assets/js/core/summarize.js"></script>
+<script src="assets/js/core/paraphrase.js"></script>
+<script src="assets/js/core/originality.js"></script>
+<script src="assets/js/core/citations.js"></script>
+<script src="assets/js/core/imagegen.js"></script>
+<script src="assets/js/core/export.js"></script>
+
+<!-- interface -->
+<script src="assets/js/ui/kit.js"></script>
+<script src="assets/js/ui/board.js"></script>
+<script src="assets/js/ui/editor.js"></script>
+<script src="assets/js/ui/tools.js"></script>
+<script src="assets/js/ui/resources.js"></script>
+<script src="assets/js/app.js"></script>
+</body>
+</html>
