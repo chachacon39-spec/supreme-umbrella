@@ -1,4 +1,16 @@
-/* Rule-based paraphraser. Deterministic rewrites with an auditable change log. */
+/* Rule-based paraphraser.
+ *
+ * The earlier version only substituted words from a small list, and gated even
+ * that behind a coin flip — so on ordinary prose it usually handed back the
+ * input unchanged. This version is built around syntactic transformations that
+ * genuinely restructure a sentence while preserving its meaning: passive to
+ * active, expletive removal, buried verbs, relative-clause reduction, clause
+ * reordering, splitting and joining. Lexical substitution still runs, but it is
+ * the last resort rather than the whole engine.
+ *
+ * Rules are applied deterministically: the seed decides *which* of several
+ * equally good options is taken, never *whether* to act. When nothing applies,
+ * that is reported rather than disguised. */
 window.FW = window.FW || {};
 
 (function (FW) {
@@ -6,12 +18,12 @@ window.FW = window.FW || {};
   var U = FW.util, L = FW.lex;
 
   var MODES = [
-    { id: 'standard', label: 'Standard', note: 'Different words, same register and length.' },
-    { id: 'formal', label: 'Formal', note: 'Raises the register; expands contractions.' },
-    { id: 'simple', label: 'Plain English', note: 'Shorter sentences, everyday words.' },
-    { id: 'creative', label: 'Creative', note: 'Fresher verbs and varied openings.' },
-    { id: 'shorten', label: 'Concise', note: 'Cuts filler and wordy constructions.' },
-    { id: 'expand', label: 'Expand', note: 'Adds connective tissue and specificity prompts.' }
+    { id: 'standard', label: 'Standard', note: 'Restructures sentences and varies wording, keeping register and length.' },
+    { id: 'formal', label: 'Formal', note: 'Raises the register, expands contractions, prefers precise verbs.' },
+    { id: 'simple', label: 'Plain English', note: 'Shorter sentences, everyday words, active voice.' },
+    { id: 'creative', label: 'Creative', note: 'Varies rhythm and sentence openings more freely.' },
+    { id: 'shorten', label: 'Concise', note: 'Cuts filler and wordy constructions without losing content.' },
+    { id: 'expand', label: 'Expand', note: 'Unpacks dense sentences into fuller, more explicit prose.' }
   ];
 
   var CONTRACTIONS = {
@@ -26,29 +38,11 @@ window.FW = window.FW || {};
     "they'll": 'they will', "I'd": 'I would', "we'd": 'we would', "you'd": 'you would'
   };
 
-  var CREATIVE_OPENERS = ['Notably, ', 'In practice, ', 'More to the point, ', 'What follows is simple: ',
-    'Here is the part that matters: ', 'Put plainly, '];
+  var CONTRACTIBLE = ['cannot', 'do not', 'does not', 'did not', 'is not', 'are not',
+    'was not', 'were not', 'will not', 'it is', 'they are', 'we are', 'you are',
+    'have not', 'has not', 'that is', 'there is'];
 
-  var EXPAND_PROMPTS = [
-    ' [add a concrete example here]', ' [name the source]', ' [quantify this]',
-    ' [say who this affects]', ' [state the timeframe]'
-  ];
-
-  function register(mode) {
-    if (mode === 'formal') return 'formal';
-    if (mode === 'simple' || mode === 'shorten') return 'simple';
-    if (mode === 'creative') return 'creative';
-    return 'neutral';
-  }
-
-  function pickSynonym(word, mode, rnd) {
-    var entry = L.SYNONYMS[word.toLowerCase()];
-    if (!entry) return null;
-    var reg = register(mode);
-    var pool = entry[reg] && entry[reg].length ? entry[reg] : entry.neutral;
-    if (!pool || !pool.length) return null;
-    return U.pick(pool, rnd);
-  }
+  function escapeRe(s) { return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
   function matchCase(source, replacement) {
     if (/^[A-Z][a-z]/.test(source)) return replacement.charAt(0).toUpperCase() + replacement.slice(1);
@@ -56,74 +50,274 @@ window.FW = window.FW || {};
     return replacement;
   }
 
-  function escapeRe(s) { return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+  function lower(s) { return s.charAt(0).toLowerCase() + s.slice(1); }
+  function upper(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
 
-  /* Move a leading subordinate clause to the end, or vice versa. */
-  function reorderClauses(sentence, rnd) {
-    var lead = sentence.match(/^(Because|Although|Though|While|When|If|Since|After|Before|Unless|Whereas)\s+([^,]{8,90}),\s+(.{10,})$/i);
-    if (lead) {
-      var tail = lead[3].replace(/\s*$/, '');
-      var conj = lead[1].toLowerCase();
-      var body = U.sentenceCase(tail.replace(/[.]$/, ''));
-      return { text: body + ' ' + conj + ' ' + lead[2].replace(/[.]$/, '') + '.', note: 'moved the “' + conj + '” clause to the end' };
+  /* Words that are capitalised only because they start a sentence. Anything not
+     on this list is assumed to be a proper noun and keeps its capital: writing
+     "texas" is a visible error, whereas leaving "Solar" capitalised mid-sentence
+     is merely untidy, so the bias runs that way. */
+  var SENTENCE_STARTERS = ('the a an this that these those it its it\'s they their them ' +
+    'we our us you your he she his her him i my me one some many most all each every ' +
+    'if when while because although though since after before unless whereas as ' +
+    'there here what which who how why but and or so yet for nor ' +
+    'is are was were be being been has have had do does did will would can could ' +
+    'should may might must let no not now then also however therefore moreover ' +
+    'in on at by with from about over under between through during against ' +
+    'more less fewer other another such both either neither any few several ' +
+    'people homeowners readers clients customers writers teams companies businesses ' +
+    'prior recent current new old first second third last next final').split(' ');
+
+  /* Common words that are safe to lower-case even when a sentence begins with
+     them. Without this, restructuring leaves "Because Demand peaks…" — the
+     lower-case evidence below covers most real drafts, but a single pasted
+     sentence offers none. */
+  var COMMON_WORDS = ('demand supply cost costs price prices value values work works ' +
+    'research results result data study studies report reports team teams group ' +
+    'company companies business market markets growth change changes risk risks ' +
+    'time times year years month months week weeks day days rate rates number ' +
+    'numbers level levels point points part parts case cases fact facts reason ' +
+    'reasons problem problems issue issues question questions answer answers ' +
+    'payback revenue profit margin margins budget budgets capacity demandside ' +
+    'sales customers clients users readers writers editors drafts writing ' +
+    'payment payments savings spending income output input quality speed ' +
+    'design designs plan plans project projects process processes system systems ' +
+    'service services product products feature features version versions ' +
+    'evidence findings method methods approach approaches strategy analysis ' +
+    'performance behaviour behavior activity training memory sleep duration ' +
+    'engineers developers managers staff people person policy policies ' +
+    'installation hardware software platform migration maintenance').split(' ');
+
+  var STARTER_SET = {};
+  SENTENCE_STARTERS.forEach(function (w) { STARTER_SET[w] = true; });
+  COMMON_WORDS.forEach(function (w) { STARTER_SET[w] = true; });
+
+  /* Words seen in lower case anywhere in the source are safe to lower-case:
+     if "solar" appears mid-sentence somewhere, "Solar" is not a proper noun. */
+  var lowerSeen = {};
+
+  function noteLowercaseWords(text) {
+    lowerSeen = {};
+    var re = /\b[a-z][a-z'’-]{1,}\b/g, m;
+    while ((m = re.exec(text)) !== null) lowerSeen[m[0].toLowerCase()] = true;
+  }
+
+  function decap(s) {
+    var str = String(s);
+    var first = str.split(/\s+/)[0] || '';
+    var bare = first.replace(/[^A-Za-z'’-]/g, '');
+    if (!bare || !/^[A-Z]/.test(bare)) return str;
+    if (bare === 'I') return str;
+    var key = bare.toLowerCase();
+    if (STARTER_SET[key] || lowerSeen[key]) return lower(str);
+    return str;  /* assume a proper noun */
+  }
+
+  function terminal(sentence) {
+    var m = String(sentence).match(/([.!?]["'”’)\]]*)\s*$/);
+    return m ? m[1] : '';
+  }
+
+  function stripTerminal(sentence) {
+    return String(sentence).replace(/[.!?]["'”’)\]]*\s*$/, '').trim();
+  }
+
+  /* =====================================================================
+     Transformation rules.
+     Each takes the sentence body (no terminal punctuation) and returns
+     { text, note } when it applies, or null when it does not.
+     ===================================================================== */
+
+  var BE = '(?:is|are|was|were|be|been|being)';
+
+  /* "The report was written by the team" -> "The team wrote the report".
+     Only fires when the passive names its agent; an agentless passive cannot be
+     made active without inventing a subject. */
+  function passiveToActive(text) {
+    var re = new RegExp('^(.{3,90}?)\\s+' + BE + '\\s+(?:\\w+ly\\s+)?(\\w+(?:ed|en)|' +
+      Object.keys(L.PARTICIPLE_TO_PAST).join('|') + ')\\s+by\\s+(.{2,60})$', 'i');
+    var m = text.match(re);
+    if (!m) return null;
+
+    var subject = m[1].trim(), participle = m[2].toLowerCase(), agent = m[3].trim();
+
+    /* "by the board last spring" — the time phrase belongs at the end of the
+       new sentence, not inside the subject. */
+    var tail = '';
+    var adverbial = agent.match(/\s+((?:last|next|this|each|every)\s+\w+|yesterday|today|tonight|recently|in\s+(?:19|20)\d{2}|(?:in|on|at)\s+\w+day)$/i);
+    if (adverbial) {
+      tail = ' ' + adverbial[1].trim();
+      agent = agent.slice(0, adverbial.index).trim();
     }
-    var trail = sentence.match(/^(.{15,})\s+(because|although|though|while|whereas|since|unless)\s+(.{8,})[.]$/i);
-    if (trail && rnd() > 0.35) {
+    /* An agent carrying its own clause is too risky to move. */
+    if (/\s(?:who|which|that|and|or|because|while)\s/i.test(agent)) return null;
+    if (/[,;:]$/.test(agent)) return null;
+
+    var past = L.PARTICIPLE_TO_PAST[participle] ||
+      (/ed$/.test(participle) ? participle : null);
+    if (!past) return null;
+
+    return {
+      text: upper(decap(agent)) + ' ' + past + ' ' + decap(subject) + tail,
+      note: 'passive → active'
+    };
+  }
+
+  /* "There are three things you need" -> "You need three things".
+     "It is important to note that X" -> "X". */
+  function removeExpletive(text) {
+    var m = text.match(/^There\s+(?:is|are|was|were)\s+(.+?)\s+(?:that|which|who)\s+(.+)$/i);
+    if (m) {
+      /* "There are three factors that determine X" -> "Three factors determine X":
+         the noun phrase leads and the relative clause becomes the predicate. */
+      return { text: upper(decap(m[1].trim())) + ' ' + decap(m[2].trim()), note: 'dropped "there is/are"' };
+    }
+    m = text.match(/^It\s+(?:is|was)\s+(?:important|worth|necessary|useful|helpful)\s+to\s+(?:note|remember|say)\s+that\s+(.+)$/i);
+    if (m) return { text: upper(decap(m[1].trim())), note: 'dropped the throat-clearing opener' };
+
+    m = text.match(/^It\s+(?:is|was)\s+(?:clear|evident|obvious|apparent)\s+that\s+(.+)$/i);
+    if (m) return { text: upper(decap(m[1].trim())), note: 'dropped "it is clear that"' };
+
+    m = text.match(/^There\s+(?:is|are|was|were)\s+(.+)$/i);
+    if (m && U.wordCount(m[1]) > 3) {
+      return { text: upper(decap(m[1].trim())) + ' exists', note: 'dropped "there is/are"' };
+    }
+    return null;
+  }
+
+  /* Nouns doing a verb's work. */
+  function unburyVerb(text) {
+    for (var i = 0; i < L.NOMINALISATIONS.length; i++) {
+      var pair = L.NOMINALISATIONS[i];
+      var re = new RegExp(pair[0].source, pair[0].flags);
+      if (re.test(text)) {
+        var out = text.replace(new RegExp(pair[0].source, pair[0].flags), function (match) {
+          return matchCase(match, pair[1]);
+        });
+        if (out !== text) return { text: out, note: 'unburied a verb' };
+      }
+    }
+    return null;
+  }
+
+  /* "the sunlight that their roof receives" -> "the sunlight their roof receives"
+     "the team which is responsible" -> "the team responsible" */
+  function reduceRelative(text) {
+    var out = text.replace(/\b(\w+)\s+(?:which|that|who)\s+(?:is|are|was|were)\s+/gi, '$1 ');
+    if (out !== text) return { text: out, note: 'reduced a relative clause' };
+
+    out = text.replace(/\b(\w+)\s+that\s+(their|his|her|its|our|your|my|the)\s+/gi, '$1 $2 ');
+    if (out !== text) return { text: out, note: 'dropped an optional "that"' };
+    return null;
+  }
+
+  /* Move a leading subordinate clause to the end, or the reverse. */
+  function moveClause(text, rnd) {
+    var lead = text.match(/^(Because|Although|Though|While|When|If|Since|After|Before|Unless|Whereas|As)\s+([^,]{8,90}),\s+(.{10,})$/i);
+    if (lead) {
       return {
-        text: U.sentenceCase(trail[2]) + ' ' + trail[3].replace(/[.]$/, '') + ', ' +
-          trail[1].charAt(0).toLowerCase() + trail[1].slice(1) + '.',
-        note: 'fronted the “' + trail[2].toLowerCase() + '” clause'
+        text: upper(decap(lead[3].trim())) + ' ' + lead[1].toLowerCase() + ' ' + decap(lead[2].trim()),
+        note: 'moved the "' + lead[1].toLowerCase() + '" clause to the end'
+      };
+    }
+    var trail = text.match(/^(.{15,})\s+(because|although|though|while|whereas|since|unless)\s+(.{8,})$/i);
+    if (trail) {
+      return {
+        text: upper(trail[2]) + ' ' + decap(trail[3].trim()) + ', ' + decap(trail[1].trim()),
+        note: 'fronted the "' + trail[2].toLowerCase() + '" clause'
       };
     }
     return null;
   }
 
-  /* Split at a coordinating conjunction when the sentence runs long. */
-  var FINITE = /\b(is|are|was|were|has|have|had|will|would|can|could|should|must|may|might|does|do|did|makes|made|means|shows|showed|gives|gave|takes|took|costs?|pays?|works?|needs?|becomes?|remains?|includes?)\b/i;
+  /* Swap a coordinating conjunction for a subordinating one, which restructures
+     the relationship rather than just renaming it. */
+  function recastConjunction(text) {
+    var m = text.match(/^(.{12,}?),\s+so\s+(.{10,})$/i);
+    if (m) {
+      return {
+        text: 'Because ' + decap(m[1].trim()) + ', ' + decap(m[2].trim()),
+        note: '"so" recast as "because"'
+      };
+    }
+    m = text.match(/^(.{12,}?),\s+but\s+(.{10,})$/i);
+    if (m) {
+      return {
+        text: 'Although ' + decap(m[1].trim()) + ', ' + decap(m[2].trim()),
+        note: '"but" recast as "although"'
+      };
+    }
+    return null;
+  }
 
-  function splitSentence(sentence) {
-    if (U.wordCount(sentence) < 26) return null;
-    var m = sentence.match(/^([^,]{40,}?),\s+(and|but|so|yet)\s+(.{25,})$/i);
+  var FINITE = /\b(is|are|was|were|has|have|had|will|would|can|could|should|must|may|might|does|do|did|makes|made|means|shows|showed|gives|gave|takes|took|costs?|pays?|works?|needs?|becomes?|remains?|includes?|receives?|requires?)\b/i;
+
+  /* Split a long coordinated sentence. Never splits a serial list. */
+  function splitSentence(text) {
+    if (U.wordCount(text) < 22) return null;
+    var m = text.match(/^([^,]{35,}?),\s+(and|but|so|yet)\s+(.{20,})$/i);
     if (!m) return null;
-    /* A serial list ("a, b, and c") is not two clauses — leave it alone. */
     if (/,/.test(m[1])) return null;
-    /* The second half must stand on its own as a sentence. */
     if (!FINITE.test(m[3]) || U.wordCount(m[3]) < 5) return null;
-    var second = m[3];
     var lead = { and: '', but: 'But ', so: 'So ', yet: 'Yet ' }[m[2].toLowerCase()] || '';
     return {
-      text: m[1].replace(/[,\s]*$/, '') + '. ' + lead + U.sentenceCase(second),
+      text: m[1].replace(/[,\s]*$/, '') + '. ' + lead + upper(decap(m[3])),
       note: 'split one long sentence into two'
     };
   }
 
-  function rewriteSentence(sentence, mode, rnd) {
-    var text = sentence;
+  /* Unpack a dense sentence by making an implicit relationship explicit. */
+  function expandSentence(text, rnd) {
+    var m = text.match(/^(.{15,}?),\s+(?:and|which)\s+(.{12,})$/i);
+    if (m) {
+      var connector = U.pick(['This matters because', 'The consequence is that', 'In practice this means'], rnd);
+      return {
+        text: m[1].replace(/[,\s]*$/, '') + '. ' + connector + ' ' + decap(m[2].trim()),
+        note: 'made an implied relationship explicit'
+      };
+    }
+    /* Turn a bare comparative into a stated comparison. */
+    m = text.match(/^(.{10,}?)\s+(?:is|are)\s+(\w+er|more\s+\w+)\s+than\s+(.{4,})$/i);
+    if (m) {
+      return {
+        text: m[1].trim() + ' comes out ' + m[2] + ' than ' + m[3].trim() +
+          ', and the gap is wide enough to matter',
+        note: 'stated the comparison rather than implying it'
+      };
+    }
+    return null;
+  }
+
+  /* ---- lexical passes ---- */
+
+  function applyWordy(text) {
     var notes = [];
+    L.WORDY.forEach(function (pair) {
+      var re = new RegExp('\\b' + escapeRe(pair[0]) + '\\b', 'gi');
+      if (re.test(text)) {
+        text = text.replace(new RegExp('\\b' + escapeRe(pair[0]) + '\\b', 'gi'), function (m) {
+          return pair[1] ? matchCase(m, pair[1]) : '';
+        });
+        notes.push(pair[1] ? '“' + pair[0] + '” → “' + pair[1] + '”' : 'cut “' + pair[0] + '”');
+      }
+    });
+    return { text: text, notes: notes };
+  }
 
-    /* 1. phrase-level wordiness */
-    if (mode === 'shorten' || mode === 'standard' || mode === 'simple' || mode === 'formal') {
-      L.WORDY.forEach(function (pair) {
-        var re = new RegExp('\\b' + escapeRe(pair[0]) + '\\b', 'gi');
-        if (re.test(text)) {
-          text = text.replace(re, function (m) { return pair[1] ? matchCase(m, pair[1]) : ''; });
-          notes.push(pair[1] ? '“' + pair[0] + '” → “' + pair[1] + '”' : 'cut “' + pair[0] + '”');
-        }
-      });
-    }
+  function applyFillers(text) {
+    var notes = [];
+    L.FILLERS.forEach(function (f) {
+      var re = new RegExp('\\b' + escapeRe(f) + '\\s+', 'gi');
+      if (re.test(text)) {
+        text = text.replace(re, '');
+        notes.push('removed filler “' + f + '”');
+      }
+    });
+    return { text: text, notes: notes };
+  }
 
-    /* 2. filler removal */
-    if (mode === 'shorten' || mode === 'simple' || mode === 'standard') {
-      L.FILLERS.forEach(function (f) {
-        var re = new RegExp('\\b' + escapeRe(f) + '\\s+', 'gi');
-        if (re.test(text)) {
-          text = text.replace(re, '');
-          notes.push('removed filler “' + f + '”');
-        }
-      });
-    }
-
-    /* 3. contractions */
+  function applyContractions(text, mode) {
+    var notes = [];
     if (mode === 'formal') {
       Object.keys(CONTRACTIONS).forEach(function (c) {
         var re = new RegExp(escapeRe(c).replace("'", "['’]"), 'gi');
@@ -132,81 +326,199 @@ window.FW = window.FW || {};
           notes.push('expanded “' + c + '”');
         }
       });
-    } else if (mode === 'simple') {
-      Object.keys(CONTRACTIONS).forEach(function (c) {
-        var re = new RegExp('\\b' + escapeRe(CONTRACTIONS[c]) + '\\b', 'gi');
-        if (/^(cannot|do not|does not|is not|are not|will not|it is|they are|we are|you are)$/i.test(CONTRACTIONS[c]) && re.test(text)) {
-          text = text.replace(re, function (m) { return matchCase(m, c); });
-          notes.push('contracted to “' + c + '”');
+    } else if (mode === 'simple' || mode === 'creative') {
+      CONTRACTIBLE.forEach(function (full) {
+        var short = Object.keys(CONTRACTIONS).filter(function (k) { return CONTRACTIONS[k] === full; })[0];
+        if (!short) return;
+        var re = new RegExp('\\b' + escapeRe(full) + '\\b', 'gi');
+        if (re.test(text)) {
+          text = text.replace(re, function (m) { return matchCase(m, short); });
+          notes.push('contracted to “' + short + '”');
         }
       });
     }
-
-    /* 4. synonym substitution — at most a third of eligible words, so the voice survives */
-    var swapped = 0;
-    var eligible = (text.match(/\b[A-Za-z]{3,}\b/g) || []).filter(function (w) { return L.SYNONYMS[w.toLowerCase()]; });
-    var budget = Math.max(1, Math.ceil(eligible.length / 3));
-    text = text.replace(/\b[A-Za-z]{3,}\b/g, function (word) {
-      if (swapped >= budget) return word;
-      if (rnd() < 0.45) return word;
-      var syn = pickSynonym(word, mode, rnd);
-      if (!syn || syn.toLowerCase() === word.toLowerCase()) return word;
-      swapped++;
-      notes.push('“' + word + '” → “' + syn + '”');
-      return matchCase(word, syn);
-    });
-
-    /* 5. structural moves */
-    if (mode !== 'shorten') {
-      var re2 = reorderClauses(text, rnd);
-      if (re2 && rnd() > 0.4) { text = re2.text; notes.push(re2.note); }
-    }
-    if (mode === 'simple' || mode === 'shorten') {
-      var sp = splitSentence(text);
-      if (sp) { text = sp.text; notes.push(sp.note); }
-    }
-
-    /* 6. mode flourishes */
-    if (mode === 'creative' && rnd() > 0.62) {
-      var opener = U.pick(CREATIVE_OPENERS, rnd);
-      text = opener + text.charAt(0).toLowerCase() + text.slice(1);
-      notes.push('new opening beat');
-    }
-    if (mode === 'expand') {
-      if (rnd() > 0.45) {
-        var prompt = U.pick(EXPAND_PROMPTS, rnd);
-        text = text.replace(/([.!?])\s*$/, prompt + '$1');
-        notes.push('inserted an expansion prompt');
-      }
-      var transition = U.pick(['In practice, ', 'More specifically, ', 'The reason is straightforward: ', 'Taken together, '], rnd);
-      if (rnd() > 0.65) {
-        text = transition + text.charAt(0).toLowerCase() + text.slice(1);
-        notes.push('added a connective opening');
-      }
-    }
-
-    text = text.replace(/\s{2,}/g, ' ').replace(/\s+([,.;:!?])/g, '$1').trim();
-    /* A multi-word substitution can leave a doubled function word ("have to to"). */
-    text = text.replace(/\b(to|of|the|a|an|in|for|that|and|is|are)\s+\1\b/gi, '$1');
-    text = U.sentenceCase(text);
-    if (!/[.!?…"”’)]$/.test(text) && /[.!?]$/.test(sentence)) text += sentence.slice(-1);
-
     return { text: text, notes: notes };
+  }
+
+  /* A word after one of these is carrying inflection the synonym bank does not
+     have, so it is left alone. */
+  var AUXILIARIES = {};
+  ('have has had having is are was were be been being am ' +
+   'will would can could should may might must')
+    .split(' ').forEach(function (w) { AUXILIARIES[w] = true; });
+
+  var DETERMINERS = {};
+  ('the a an this that these those its his her their our your my no any each every')
+    .split(' ').forEach(function (w) { DETERMINERS[w] = true; });
+
+  function register(mode) {
+    if (mode === 'formal') return 'formal';
+    if (mode === 'simple' || mode === 'shorten') return 'simple';
+    if (mode === 'creative') return 'creative';
+    return 'neutral';
+  }
+
+  /* Substitute up to `budget` eligible words. Which ones, and which synonym, is
+     decided by the seed — but if anything is eligible, something is changed. */
+  function applySynonyms(text, mode, rnd, budget) {
+    var reg = register(mode);
+    var notes = [];
+    var eligible = [];
+    var re = /\b[A-Za-z]{3,}\b/g, m;
+    while ((m = re.exec(text)) !== null) {
+      if (!L.SYNONYMS[m[0].toLowerCase()]) continue;
+
+      /* Not inside a hyphenated compound: "slow-wave" must not become
+         "laggy-wave". */
+      var before = text.charAt(m.index - 1), after = text.charAt(m.index + m[0].length);
+      if (before === '-' || after === '-') continue;
+
+      /* Not an inflected verb: the bank holds base forms, so substituting into
+         "have become" or "is required" produces "have grow", "is need". */
+      var preceding = text.slice(0, m.index).match(/([A-Za-z']+)\s+$/);
+      if (preceding && AUXILIARIES[preceding[1].toLowerCase()]) continue;
+
+      /* Not a verb taking an infinitive: "need to consider" cannot become
+         "call for to consider", and most alternatives govern a complement
+         differently, so the whole construction is left alone. */
+      var following = text.slice(m.index + m[0].length).match(/^\s+([A-Za-z']+)/);
+      if (following && /^to$/i.test(following[1])) continue;
+
+      /* A verb's synonyms do not fit a noun slot: "the start of July" must not
+         become "the launch of July". A determiner in front means this word is
+         being used as a noun whatever the bank thinks it is. */
+      var entry = L.SYNONYMS[m[0].toLowerCase()];
+      if (entry.pos === 'verb' && preceding && DETERMINERS[preceding[1].toLowerCase()]) continue;
+
+      eligible.push({ word: m[0], index: m.index });
+    }
+    if (!eligible.length) return { text: text, notes: notes };
+
+    var picks = U.pickN(eligible, Math.max(1, Math.min(budget, Math.ceil(eligible.length / 2))), rnd);
+    /* Replace from the back so earlier offsets stay valid. */
+    picks.sort(function (a, b) { return b.index - a.index; }).forEach(function (pick) {
+      var entry = L.SYNONYMS[pick.word.toLowerCase()];
+      var pool = (entry[reg] && entry[reg].length) ? entry[reg] : entry.neutral;
+      if (!pool || !pool.length) return;
+      var choice = U.pick(pool, rnd);
+      if (!choice || choice.toLowerCase() === pick.word.toLowerCase()) return;
+      text = text.slice(0, pick.index) + matchCase(pick.word, choice) +
+        text.slice(pick.index + pick.word.length);
+      notes.push('“' + pick.word + '” → “' + choice + '”');
+    });
+    return { text: text, notes: notes };
+  }
+
+  /* Which structural rules each mode may use, in the order they are tried. */
+  var RULES_BY_MODE = {
+    standard: [passiveToActive, removeExpletive, unburyVerb, reduceRelative, moveClause, recastConjunction],
+    formal: [passiveToActive, unburyVerb, moveClause, recastConjunction],
+    simple: [passiveToActive, removeExpletive, unburyVerb, reduceRelative, splitSentence],
+    creative: [passiveToActive, removeExpletive, moveClause, recastConjunction, splitSentence],
+    shorten: [removeExpletive, unburyVerb, reduceRelative, passiveToActive],
+    expand: [expandSentence, passiveToActive, moveClause]
+  };
+
+  var SYNONYM_BUDGET = {
+    standard: 3, formal: 3, simple: 2, creative: 4, shorten: 1, expand: 2
+  };
+
+  function rewriteSentence(sentence, mode, rnd) {
+    var end = terminal(sentence);
+    var text = stripTerminal(sentence);
+    var notes = [];
+
+    /* 1. Structural rules first — they reshape the sentence the others polish. */
+    var rules = RULES_BY_MODE[mode] || RULES_BY_MODE.standard;
+    for (var i = 0; i < rules.length; i++) {
+      var result = rules[i](text, rnd);
+      if (result && result.text && result.text !== text) {
+        text = result.text;
+        notes.push(result.note);
+        break; /* one structural change per sentence keeps the meaning safe */
+      }
+    }
+
+    /* 2. Wordiness and filler. */
+    if (mode !== 'expand') {
+      var wordy = applyWordy(text);
+      text = wordy.text; notes = notes.concat(wordy.notes);
+    }
+    if (mode === 'shorten' || mode === 'simple' || mode === 'standard') {
+      var filler = applyFillers(text);
+      text = filler.text; notes = notes.concat(filler.notes);
+    }
+
+    /* 3. Register. */
+    var contract = applyContractions(text, mode);
+    text = contract.text; notes = notes.concat(contract.notes);
+
+    /* 4. Lexical substitution, last. */
+    var syn = applySynonyms(text, mode, rnd, SYNONYM_BUDGET[mode] || 2);
+    text = syn.text; notes = notes.concat(syn.notes);
+
+    /* tidy */
+    text = text.replace(/\s{2,}/g, ' ').replace(/\s+([,.;:!?])/g, '$1').trim();
+    text = text.replace(/\b(to|of|the|a|an|in|for|that|and|is|are)\s+\1\b/gi, '$1');
+    text = upper(text);
+    if (end && !/[.!?]$/.test(text)) text += end;
+
+    return { text: text, notes: notes, changed: text !== sentence };
+  }
+
+  /* Join two short adjacent sentences. Runs across a paragraph rather than
+     within one sentence, so it lives outside rewriteSentence. */
+  function joinShortPairs(sentences, rnd) {
+    var out = [], notes = [], i = 0;
+    while (i < sentences.length) {
+      var a = sentences[i], b = sentences[i + 1];
+      if (b && U.wordCount(a) <= 11 && U.wordCount(b) <= 11 &&
+        !/^(But|And|So|Yet|However|Then)\b/i.test(b) && /[.]$/.test(a)) {
+        var connector = U.pick([', and ', ', and ', '; '], rnd);
+        out.push(stripTerminal(a) + connector + decap(stripTerminal(b)) + terminal(b));
+        notes.push('joined two short sentences');
+        i += 2;
+      } else {
+        out.push(a);
+        i += 1;
+      }
+    }
+    return { sentences: out, notes: notes };
   }
 
   function paraphrase(text, mode, seed) {
     mode = mode || 'standard';
-    var rnd = U.seeded((seed || 'para') + '|' + mode + '|' + text.slice(0, 200));
+    var rnd = U.seeded((seed || 'para') + '|' + mode + '|' + String(text).slice(0, 200));
+    noteLowercaseWords(text);
     var paragraphs = U.splitParagraphs(text);
-    if (!paragraphs.length) return { text: '', pairs: [], notes: [], mode: mode };
+    if (!paragraphs.length) {
+      return {
+        text: '', mode: mode, pairs: [], notes: [], changedSentences: 0,
+        totalSentences: 0, wordsBefore: 0, wordsAfter: 0, unchanged: []
+      };
+    }
 
-    var pairs = [], allNotes = [];
+    var pairs = [], allNotes = [], unchanged = [], total = 0;
+
     var out = paragraphs.map(function (p) {
-      return U.splitSentences(p).map(function (s) {
+      var sentences = U.splitSentences(p);
+
+      if (mode === 'creative') {
+        var joined = joinShortPairs(sentences, rnd);
+        if (joined.notes.length) {
+          sentences = joined.sentences;
+          allNotes = allNotes.concat(joined.notes);
+        }
+      }
+
+      return sentences.map(function (s) {
+        total++;
         var r = rewriteSentence(s, mode, rnd);
-        if (r.text !== s) {
+        if (r.changed) {
           pairs.push({ before: s, after: r.text, notes: r.notes });
           allNotes = allNotes.concat(r.notes);
+        } else {
+          unchanged.push(s);
         }
         return r.text;
       }).join(' ');
@@ -218,6 +530,8 @@ window.FW = window.FW || {};
       pairs: pairs,
       notes: U.unique(allNotes),
       changedSentences: pairs.length,
+      totalSentences: total,
+      unchanged: unchanged,
       wordsBefore: U.wordCount(text),
       wordsAfter: U.wordCount(out)
     };
@@ -246,5 +560,14 @@ window.FW = window.FW || {};
     return out;
   }
 
-  FW.paraphrase = { paraphrase: paraphrase, diff: diff, MODES: MODES };
+  FW.paraphrase = {
+    paraphrase: paraphrase, diff: diff, MODES: MODES,
+    /* exposed for testing the individual transformations */
+    rules: {
+      passiveToActive: passiveToActive, removeExpletive: removeExpletive,
+      unburyVerb: unburyVerb, reduceRelative: reduceRelative,
+      moveClause: moveClause, recastConjunction: recastConjunction,
+      splitSentence: splitSentence, expandSentence: expandSentence
+    }
+  };
 })(window.FW);

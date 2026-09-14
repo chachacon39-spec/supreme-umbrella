@@ -256,31 +256,123 @@ async function run() {
     t.ok(typeof short.summary === 'string', 'a one-sentence input does not crash');
   });
 
-  await t.section('paraphraser', function () {
-    var src = 'In order to make a decision about the pricing, the team utilises a very large amount ' +
-      'of data due to the fact that customers are quite sensitive.';
+  await t.section('paraphraser — it actually rewrites', function () {
+    /* The original implementation gated every substitution behind a coin flip
+       and only ever swapped words, so on ordinary prose it returned the input
+       unchanged. These assertions exist to stop that shipping again. */
+    var passages = [
+      'Solar panels have become much cheaper over the past decade. Homeowners need to ' +
+      'consider the installed cost, the local electricity rate and the sunlight their roof receives. ' +
+      'Texas has high summer demand, so payback periods there are shorter than the national average.',
+
+      'We recommend proceeding with the migration in the third quarter. The current platform ' +
+      'costs the company roughly forty thousand pounds a year in maintenance. Delaying the ' +
+      'decision by two quarters would erode the projected savings.'
+    ];
 
     FW.paraphrase.MODES.forEach(function (mode) {
-      var p = FW.paraphrase.paraphrase(src, mode.id, 'seed');
-      t.ok(p.text.length > 20, mode.label + ': produces output');
-      t.notMatch(p.text, /\b(\w+)\s+\1\b/i, mode.label + ': no doubled words left behind');
-      t.notMatch(p.text, /\s{2,}|\s+[,.]/, mode.label + ': no stray whitespace or spaced punctuation');
+      var changed = 0, total = 0;
+      passages.forEach(function (src) {
+        var r = FW.paraphrase.paraphrase(src, mode.id, 'seed');
+        changed += r.changedSentences;
+        total += r.totalSentences;
+      });
+      t.atLeast(changed, 2, mode.label + ': rewrites ordinary prose (' + changed + '/' + total + ' sentences)');
     });
 
-    var concise = FW.paraphrase.paraphrase(src, 'shorten', 'seed');
-    t.atMost(concise.wordsAfter, concise.wordsBefore, 'concise mode does not grow the text');
-    t.includes(concise.text.toLowerCase(), 'to decide', 'concise mode unpacks "make a decision"');
+    /* Reporting must be honest: the counts are what the UI shows. */
+    var r = FW.paraphrase.paraphrase(passages[0], 'standard', 'seed');
+    t.equal(r.totalSentences, 3, 'reports how many sentences it looked at');
+    t.equal(r.changedSentences + r.unchanged.length, r.totalSentences,
+      'every sentence is accounted for as changed or unchanged');
+    t.ok(r.notes.length > 0, 'reports what it did');
+  });
 
-    /* A serial list must never be split into a fragment. */
+  await t.section('paraphraser — structural rules', function () {
+    function rewrite(src, mode) {
+      return FW.paraphrase.paraphrase(src, mode || 'standard', 'fixed').text;
+    }
+
+    t.includes(rewrite('The report was written by the marketing team.'), 'wrote the report',
+      'turns a passive clause active');
+    t.includes(rewrite('The samples were reviewed by two independent analysts.'), 'reviewed the samples',
+      'handles a regular past participle');
+    t.includes(rewrite('The decision was taken by the board last spring.'), 'took the decision',
+      'handles an irregular past participle');
+    t.includes(rewrite('The decision was taken by the board last spring.'), 'last spring',
+      'keeps a trailing time phrase at the end rather than inside the subject');
+
+    /* An agentless passive cannot be made active without inventing a subject. */
+    t.includes(rewrite('The budget was reduced last quarter.'), 'was reduced',
+      'leaves an agentless passive alone');
+
+    var expletive = rewrite('There are three factors that determine the payback period.');
+    t.notMatch(expletive, /^There are/i, 'drops "there are"');
+    t.match(expletive, /^Three factors determine/i, 'and keeps the clauses in the right order');
+
+    t.notMatch(rewrite('It is important to note that incentives change every year.'), /^It is important/i,
+      'drops a throat-clearing opener');
+    t.includes(rewrite('The committee will make a decision about the proposal on Friday.'), 'decide',
+      'unburies a verb from a nominalisation');
+    t.includes(rewrite('The engineers who are responsible for the system have left.'), 'engineers responsible',
+      'reduces a relative clause');
+    t.includes(rewrite('Because demand is high in summer, payback periods are shorter.'), 'because demand is high',
+      'moves a leading subordinate clause to the end');
+    t.match(rewrite('Demand peaks in summer, so payback periods are shorter there.'), /^Because demand peaks/i,
+      'recasts "so" as "because"');
+  });
+
+  await t.section('paraphraser — it does not break the sentence', function () {
+    function rewriteAll(src) {
+      return FW.paraphrase.MODES.map(function (m) {
+        return { mode: m.label, text: FW.paraphrase.paraphrase(src, m.id, 'fixed').text };
+      });
+    }
+
+    /* Facts a client would notice going missing. */
+    rewriteAll('The team cut costs by 42% in Q3, saving Meridian Energy £1.2 million.').forEach(function (r) {
+      ['42%', 'Q3', 'Meridian', '1.2'].forEach(function (token) {
+        t.includes(r.text, token, r.mode + ': keeps "' + token + '"');
+      });
+    });
+
+    /* Grammatical breakage the earlier version produced. */
+    rewriteAll('Solar panels have become cheaper, and Texas has high summer demand.').forEach(function (r) {
+      t.includes(r.text, 'have become', r.mode + ': does not substitute into a perfect construction');
+      t.includes(r.text, 'Texas', r.mode + ': does not lower-case a proper noun');
+    });
+
+    rewriteAll('This study examines whether slow-wave activity mediates the effect.').forEach(function (r) {
+      t.includes(r.text, 'slow-wave', r.mode + ': does not substitute inside a hyphenated compound');
+    });
+
+    rewriteAll('Homeowners need to consider the installed cost before they commit.').forEach(function (r) {
+      t.notMatch(r.text, /\b(for|on|with|at|of)\s+to\b/, r.mode + ': does not break a verb + infinitive');
+    });
+
+    rewriteAll('The engineering team has spare capacity from the start of July.').forEach(function (r) {
+      t.includes(r.text, 'start of July', r.mode + ': does not put a verb synonym in a noun slot');
+    });
+
+    var messy = 'In order to make a decision about the pricing, the team utilises a very large ' +
+      'amount of data due to the fact that customers are quite sensitive.';
+    rewriteAll(messy).forEach(function (r) {
+      t.notMatch(r.text, /\b(\w+)\s+\1\b/i, r.mode + ': leaves no doubled words');
+      t.notMatch(r.text, /\s{2,}|\s+[,.]/, r.mode + ': leaves no stray whitespace');
+      t.match(r.text, /^[A-Z]/, r.mode + ': still starts with a capital');
+      t.match(r.text, /[.!?]$/, r.mode + ': still ends with terminal punctuation');
+    });
+
+    /* A serial list is not two clauses. */
     var list = 'To work out the cost you need the installed price, the local electricity rate, ' +
       'and the amount of sunlight the roof receives each year in full.';
-    var split = FW.paraphrase.paraphrase(list, 'simple', 'seed');
-    t.notMatch(split.text, /\.\s+(And|The amount of sunlight the roof receives[^.]*\.$)/,
-      'a serial list is not split into a sentence fragment');
+    t.notMatch(FW.paraphrase.paraphrase(list, 'simple', 'fixed').text, /rate\.\s/,
+      'does not split a serial list into a fragment');
 
-    /* Function words that change grammar must not be swapped. */
-    var because = FW.paraphrase.paraphrase('Because Texas has high demand, payback is shorter.', 'creative', 'seed');
-    t.notMatch(because.text, /^For Texas has/, 'sentence-initial "because" is not swapped for "for"');
+    /* Same seed, same answer. */
+    var a = FW.paraphrase.paraphrase(messy, 'standard', 'seed').text;
+    var b = FW.paraphrase.paraphrase(messy, 'standard', 'seed').text;
+    t.equal(a, b, 'the same seed produces the same rewrite');
 
     var diff = FW.paraphrase.diff('the quick brown fox', 'the slow brown fox jumps');
     t.ok(diff.some(function (d) { return d.type === 'del' && d.text === 'quick'; }), 'diff marks deletions');

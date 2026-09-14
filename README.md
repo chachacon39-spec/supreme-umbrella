@@ -113,9 +113,16 @@ machine should not judge is marked for manual sign-off rather than faked.
   paragraph-by-paragraph outline, with an adjustable compression ratio and a
   meta-description trimmer.
 - **Paraphraser** — six registers (standard, formal, plain English, creative,
-  concise, expand) with phrase-level rewrites, register-aware synonyms, clause
-  reordering and sentence splitting. Shows a word-level diff of what changed
-  and why, and can replace your selection in place.
+  concise, expand). It restructures sentences rather than only swapping words:
+  passive to active with the agent promoted to subject, "there is/are" and
+  throat-clearing openers removed, buried verbs unearthed (*make a decision
+  about* → *decide*), relative clauses reduced, subordinate clauses moved,
+  coordination recast as subordination, long sentences split and short ones
+  joined. Lexical substitution runs last, guarded so it will not put a verb in
+  a noun slot, substitute into a perfect construction, break a verb + infinitive,
+  or reach inside a hyphenated compound. Shows a word-level diff, names each
+  structural change, and says plainly when a passage is already tight rather
+  than handing the input back as though it were a rewrite.
 - **Originality check** — offline. Compares your draft against source material
   you paste in, against every other draft in your workspace (self-plagiarism is
   a real freelance risk), and against itself, using 5-gram shingling. Reports a
@@ -226,7 +233,7 @@ and boilerplate.
 
 ```
 npm install        # Playwright only — the app itself still has no dependencies
-npm test           # 323 assertions, about a minute
+npm test           # 402 assertions, about a minute
 ```
 
 Three suites, run in order of how fast they fail:
@@ -318,8 +325,10 @@ The originality checker cannot search the web. It compares your draft against
 material you give it and hands you search links for everything else; treating
 its "no significant overlap" as clearance would be a mistake.
 
-The paraphraser is rule-based. It will occasionally choose a synonym whose
-connotation is wrong, which is why it shows you every change it made.
+The paraphraser is rule-based, not a model. Its structural transformations are
+reliable, but a synonym can still land with the wrong connotation for your
+context — which is why it shows you every change it made and names each
+structural one.
 
 Every automated suggestion is a prompt to look again, not a verdict.
 
