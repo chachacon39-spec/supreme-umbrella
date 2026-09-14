@@ -72,24 +72,28 @@ async function run() {
       await page.locator('.editor').click();
       await page.keyboard.press('Control+End');
 
-      /* Type in bursts four seconds apart: never idle long enough for a
-         debounce to settle, which is exactly the case that used to fail. */
-      for (var round = 1; round <= 6; round++) {
-        for (var i = 0; i < 8; i++) {
-          await page.keyboard.type(' Sentence ' + round + '-' + i +
-            ' adds a good handful of additional words to the draft.');
-          await wait(4000);
-        }
+      /* Type in bursts twenty seconds apart. No gap comes close to the old
+         120-second debounce, so that implementation would capture nothing at
+         all — which is the behaviour under test.
+         Five minutes of writing spans three 90-second windows. The assertions
+         below allow a window either way: pinning an exact count makes the test
+         depend on where the ticks happen to land relative to boot, which is
+         how this assertion failed in CI once already. */
+      for (var i = 1; i <= 15; i++) {
+        await page.keyboard.type(' Burst ' + i +
+          ' adds a dozen or so additional words to this draft right now.');
+        await wait(20000);
       }
 
       var after = await history(page);
-      t.atLeast(after.length, 3, 'continuous writing produces restore points (got ' + after.length + ')');
-      t.ok(after.some(function (l) { return /while writing/.test(l); }),
-        'automatic snapshots are labelled "while writing"');
+      var auto = after.filter(function (l) { return /while writing/.test(l); });
+
+      t.atLeast(auto.length, 2,
+        'continuous writing keeps producing restore points (got ' + auto.length + ')');
       t.match(after[0], /[+-]\d+ words/, 'the label records how much changed');
 
-      /* Throttled, not one per keystroke. ~192s of writing at one per 90s. */
-      t.atMost(after.length, 5, 'snapshots are throttled, not taken on every edit');
+      /* Throttled, not one per edit: 15 bursts must not mean 15 versions. */
+      t.atMost(auto.length, 5, 'snapshots are throttled, not taken on every edit');
 
       t.equal(page.__errors.length, 0, 'no console errors: ' + page.__errors.join(' | '));
       await page.close();

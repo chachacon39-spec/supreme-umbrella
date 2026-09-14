@@ -226,7 +226,7 @@ and boilerplate.
 
 ```
 npm install        # Playwright only — the app itself still has no dependencies
-npm test           # 324 assertions, about a minute
+npm test           # 323 assertions, about a minute
 ```
 
 Three suites, run in order of how fast they fail:
@@ -250,7 +250,10 @@ assertion written for it.
 
 They also avoid asserting on incidental quantities. Task ids are random, so the
 scaffolded draft differs between runs — an assertion about *total* issue counts
-is unstable by construction. Assertions target text the test itself writes.
+is unstable by construction, and assertions target text the test itself writes.
+Time-based assertions allow a window either way rather than pinning an exact
+count, since where a timer tick lands relative to boot varies by machine. Both
+lessons were learned from CI failures, not foresight.
 
 CI runs the same `npm test` on every pull request (`.github/workflows/test.yml`).
 
