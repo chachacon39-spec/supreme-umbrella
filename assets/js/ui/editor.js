@@ -443,7 +443,8 @@ window.FW = window.FW || {};
       styleGuide: S.state.settings.styleGuide,
       personaId: currentTask ? currentTask.personaId : null,
       analysis: currentTask ? currentTask.analysis : null,
-      headingRanges: tm.headings
+      headingRanges: tm.headings,
+      skipRanges: referenceRanges(tm.text)
     };
     lastResult = FW.analyzer.analyze(tm.text, opts);
     lastResult.text = tm.text;
@@ -932,6 +933,15 @@ window.FW = window.FW || {};
     return text.slice(0, m.index);
   }
 
+  /* Everything from a reference heading to the end is a bibliography. Checking
+     it for repetition, filler or passive voice reports the citation style back
+     to the writer as a writing problem. */
+  function referenceRanges(text) {
+    var m = String(text).match(REFERENCE_HEADING);
+    if (!m || m.index < text.length * 0.4) return [];
+    return [{ start: m.index, end: text.length }];
+  }
+
   function evaluate(analysis, text) {
     var out = [];
     var fullText = text;
@@ -963,9 +973,19 @@ window.FW = window.FW || {};
           if (band && words) {
             var termWords = term.trim().split(/\s+/).length;
             var pct = (n * termWords / words) * 100;
+            /* One use of a five-word phrase in a 300-word piece is 1.67%. If that
+               already breaks the cap, the target is unreachable and amber would
+               send the writer hunting for a fix that does not exist. */
+            var ceiling = analysis.meta.wordCount && analysis.meta.wordCount.max;
+            var floorPct = ceiling ? (termWords / ceiling) * 100 : 0;
+            var unreachable = floorPct > band.max;
             kwDetail += ' — ' + pct.toFixed(2) + '% of ' + band.min + '–' + band.max + '%';
             if (n === 0) kwStatus = 'fail';
-            else if (pct < band.min) { kwStatus = 'warn'; kwDetail += ' (thin)'; }
+            else if (unreachable) {
+              kwStatus = 'manual';
+              kwDetail += ' — unreachable: ' + termWords + ' words in ' + ceiling +
+                ' is ' + floorPct.toFixed(2) + '% at a single use. Raise it with the client.';
+            } else if (pct < band.min) { kwStatus = 'warn'; kwDetail += ' (thin)'; }
             else if (pct > band.max) { kwStatus = 'warn'; kwDetail += ' (stuffed)'; }
           }
           out.push({ label: c.label, status: kwStatus, detail: kwDetail });
@@ -1002,6 +1022,25 @@ window.FW = window.FW || {};
             var need2 = analysis.meta.structure.links || 0;
             var have = refs.editor.querySelectorAll('a[href]').length;
             out.push({ label: c.label, status: have >= need2 ? 'pass' : 'warn', detail: have + ' of ' + need2 });
+          } else if (/^Link (?:the keyword )?out/i.test(c.label)) {
+            var wantsKeyword = /the keyword/i.test(c.label);
+            var need4 = (analysis.meta.structure.externalLinks) || 1;
+            var terms = (analysis.meta.keywords || []).map(function (k) { return String(k.term).toLowerCase(); });
+            var outbound = Array.prototype.filter.call(
+              refs.editor.querySelectorAll('a[href]'),
+              function (a) { return /^https?:/i.test(a.getAttribute('href') || ''); });
+            var onKeyword = outbound.filter(function (a) {
+              var t = a.textContent.toLowerCase();
+              return terms.some(function (term) { return term && t.indexOf(term) !== -1; });
+            });
+            var have4 = wantsKeyword ? onKeyword.length : outbound.length;
+            out.push({
+              label: c.label, status: have4 >= need4 ? 'pass' : outbound.length ? 'warn' : 'fail',
+              detail: wantsKeyword
+                ? onKeyword.length + ' of ' + need4 + ' with the keyword as anchor text' +
+                  (outbound.length && !onKeyword.length ? ' (' + outbound.length + ' outbound link(s), none on a keyword)' : '')
+                : outbound.length + ' of ' + need4 + ' outbound links'
+            });
           } else if (/sources/i.test(c.label)) {
             out.push({ label: c.label, status: 'manual', detail: 'Check these yourself before sending.' });
           } else if (/introduction/i.test(c.label)) {

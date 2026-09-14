@@ -61,9 +61,14 @@ window.FW = window.FW || {};
 
   var EXPLETIVE = /(^|[.!?]\s+|\n)\s*(There\s+(?:is|are|was|were)|It\s+(?:is|was)\s+(?:important|clear|necessary|possible|evident|worth))\b/g;
 
-  function makeScanner(text) {
-    /* Regions we never flag inside: URLs, emails, code-ish runs. */
+  function makeScanner(text, extraRanges) {
+    /* Regions we never flag inside: URLs, emails, code-ish runs, and anything
+       the caller marks as not-prose (a reference list is a bibliography, not
+       writing — its repeated author names are the format working correctly). */
     var protectedRanges = [];
+    (extraRanges || []).forEach(function (r) {
+      if (r && r.end > r.start) protectedRanges.push([r.start, r.end]);
+    });
     [/https?:\/\/[^\s<>"')]+/g, /\b[\w.+-]+@[\w-]+\.[\w.]+\b/g, /`[^`\n]+`/g, /\b\d+\.\d+\b/g]
       .forEach(function (re) {
         var m, rx = new RegExp(re.source, 'g');
@@ -86,7 +91,7 @@ window.FW = window.FW || {};
     var lang = FW.resources.language(opts.language || 'en-US');
     var guide = opts.styleGuide || 'chicago';
     var persona = opts.personaId ? FW.personas.get(opts.personaId) : null;
-    var scanner = makeScanner(text);
+    var scanner = makeScanner(text, opts.skipRanges);
 
     var issues = [];
     var seen = {};
@@ -255,11 +260,18 @@ window.FW = window.FW || {};
         'Sentence starts with a lowercase letter.',
         function (m) { return m[0].replace(m[1], m[1].toUpperCase()); });
 
-      /* Possible comma splice: comma followed by a pronoun and a finite verb. */
+      /* Possible comma splice: comma followed by a pronoun and a finite verb.
+         A sentence that opens with a subordinating conjunction has a dependent
+         first clause, so its comma is correct: "If you write your own
+         questionnaires, this is the natural home" is not a splice. */
+      var SUBORDINATOR = /^\s*(?:if|when|whenever|while|although|though|because|since|unless|until|after|before|once|whereas|as|provided|assuming|given|where|wherever)\b/i;
       sentences.forEach(function (s) {
         var re = /,\s+(he|she|it|they|we|you|i|this|that|these|those)\s+(is|are|was|were|has|have|had|will|would|can|could|should|did|does|do|makes|made|took|takes|gets|got|needs|need|means|means)\b/gi;
         var m;
         while ((m = re.exec(s.text)) !== null) {
+          /* Only the comma that closes the leading dependent clause is exempt;
+             a second comma later in the same sentence can still be a splice. */
+          if (SUBORDINATOR.test(s.text) && s.text.slice(0, m.index).indexOf(',') === -1) continue;
           add({
             rule: 'comma-splice', type: 'grammar', severity: 'warning',
             start: s.start + m.index, end: s.start + m.index + m[0].length,
@@ -386,13 +398,16 @@ window.FW = window.FW || {};
         }
       });
 
-      /* Consecutive sentences opening with the same word */
-      for (var i = 1; i < sentences.length; i++) {
-        var a = firstWord(sentences[i - 1].text), b = firstWord(sentences[i].text);
+      /* Consecutive sentences opening with the same word. A subhead naming its
+         subject and the paragraph beneath it doing the same is normal structure,
+         not a repeated opener, so headings do not count as sentences here. */
+      var prose = sentences.filter(function (s) { return !inHeading(s.start, s.end); });
+      for (var i = 1; i < prose.length; i++) {
+        var a = firstWord(prose[i - 1].text), b = firstWord(prose[i].text);
         if (a && a === b && a.length > 2) {
           add({
             rule: 'repeated-opener', type: 'structure', severity: 'warning',
-            start: sentences[i].start, end: sentences[i].start + b.length,
+            start: prose[i].start, end: prose[i].start + b.length,
             message: 'Two sentences in a row open with “' + b + '”. Vary the entry point.',
             fix: null
           });
@@ -526,10 +541,25 @@ window.FW = window.FW || {};
           'Cliché — “' + c + '”. Replace it with something specific to this piece.', null);
       });
 
+      /* Some fillers are only fillers on their own. "Rather than a demo set" is a
+         comparison and "just in case" is a set phrase; deleting the word there
+         breaks the sentence the suggestion offers to fix. */
+      var FILLER_EXCEPTIONS = {
+        rather: /\brather\s+than\b/i,
+        just: /\bjust\s+in\s+case\b|\bjust\s+as\b/i,
+        quite: /\bquite\s+(?:a|the)\b/i
+      };
       L.FILLERS.forEach(function (f, idx) {
-        rule('filler-' + idx, 'style', 'suggestion',
-          new RegExp('\\b' + escapeRe(f) + '\\b', 'gi'),
-          'Filler — “' + f + '” usually weakens the sentence. Cut it and see if anything is lost.', '');
+        var exception = FILLER_EXCEPTIONS[String(f).toLowerCase()];
+        scan(new RegExp('\\b' + escapeRe(f) + '\\b', 'gi'), function (m) {
+          if (exception && exception.test(text.slice(m.index, m.index + 24))) return;
+          add({
+            rule: 'filler-' + idx, type: 'style', severity: 'suggestion',
+            start: m.index, end: m.index + m[0].length,
+            message: 'Filler — “' + f + '” usually weakens the sentence. Cut it and see if anything is lost.',
+            fix: ''
+          });
+        });
       });
 
       L.WEASEL.forEach(function (w, idx) {

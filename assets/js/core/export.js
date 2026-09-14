@@ -227,6 +227,10 @@ window.FW = window.FW || {};
       .replace(/"/g, '&quot;').replace(/'/g, '&apos;');
   }
 
+  /* Set for the duration of one htmlToDocxBody call; links belong to a package,
+     not to a run, so the allocator lives one level up. */
+  var linkRef = function () { return ''; };
+
   function runs(node, inherited) {
     inherited = inherited || {};
     var out = [];
@@ -245,7 +249,14 @@ window.FW = window.FW || {};
       if (tag === 'u') props.underline = true;
       if (tag === 's' || tag === 'strike' || tag === 'del') props.strike = true;
       if (tag === 'code') props.mono = true;
-      if (tag === 'a') props.link = true;
+      if (tag === 'a') {
+        var href = child.getAttribute('href') || '';
+        props.link = true;
+        if (/^(?:https?:|mailto:)/i.test(href)) {
+          out.push('<w:hyperlink r:id="' + xmlEscape(linkRef(href)) + '">' + runs(child, props) + '</w:hyperlink>');
+          return;
+        }
+      }
       if (tag === 'br') { out.push('<w:r><w:br/></w:r>'); return; }
       out.push(runs(child, props));
     });
@@ -268,10 +279,21 @@ window.FW = window.FW || {};
     return '<w:p><w:pPr>' + (style ? '<w:pStyle w:val="' + style + '"/>' : '') + (extra || '') + '</w:pPr>' + content + '</w:p>';
   }
 
-  function htmlToDocxBody(html) {
+  /* A link rendered as blue underlined text is not a link. Word carries the
+     destination in a package relationship, so an <a href> has to add one — a
+     brief that requires an outbound link is not satisfied by the styling. */
+  function htmlToDocxBody(html, links) {
     var div = document.createElement('div');
     div.innerHTML = html || '';
     var out = [];
+    links = links || [];
+
+    function linkId(href) {
+      for (var i = 0; i < links.length; i++) if (links[i].href === href) return links[i].id;
+      var id = 'rIdL' + (links.length + 1);
+      links.push({ id: id, href: href });
+      return id;
+    }
 
     function walk(node) {
       if (node.nodeType === 3) {
@@ -327,7 +349,13 @@ window.FW = window.FW || {};
       out.push(xml);
     }
 
-    Array.prototype.forEach.call(div.childNodes, walk);
+    var previousRef = linkRef;
+    linkRef = linkId;
+    try {
+      Array.prototype.forEach.call(div.childNodes, walk);
+    } finally {
+      linkRef = previousRef;
+    }
     if (!out.length) out.push(para(''));
     return out.join('');
   }
@@ -380,6 +408,8 @@ window.FW = window.FW || {};
     '<w:style w:type="paragraph" w:styleId="ListNumber"><w:name w:val="List Number"/><w:basedOn w:val="Normal"/>' +
     '<w:pPr><w:ind w:left="720" w:hanging="360"/><w:spacing w:after="80"/></w:pPr></w:style>' +
     '<w:style w:type="table" w:styleId="TableGrid"><w:name w:val="Table Grid"/></w:style>' +
+    '<w:style w:type="character" w:styleId="Hyperlink"><w:name w:val="Hyperlink"/>' +
+    '<w:rPr><w:color w:val="1155CC"/><w:u w:val="single"/></w:rPr></w:style>' +
     '</w:styles>';
   }
 
@@ -396,9 +426,11 @@ window.FW = window.FW || {};
     meta = meta || {};
     var font = meta.docxFont || (meta.fontStack ? docxFamily(meta.fontStack) : DOCX_DEFAULT_FONT);
     var pt = meta.docxSize || DOCX_DEFAULT_PT;
-    var body = htmlToDocxBody(html);
+    var links = [];
+    var body = htmlToDocxBody(html, links);
     var document_xml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
-      '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">' +
+      '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"' +
+      ' xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">' +
       '<w:body>' + body +
       '<w:sectPr><w:pgSz w:w="11906" w:h="16838"/>' +
       '<w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="708" w:footer="708" w:gutter="0"/>' +
@@ -424,6 +456,11 @@ window.FW = window.FW || {};
       '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
       '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>' +
       '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering" Target="numbering.xml"/>' +
+      links.map(function (l) {
+        return '<Relationship Id="' + xmlEscape(l.id) +
+          '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="' +
+          xmlEscape(l.href) + '" TargetMode="External"/>';
+      }).join('') +
       '</Relationships>';
 
     var core = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +

@@ -10,6 +10,7 @@ var SUITES = [
   require('./engines.test'),
   require('./app.test'),
   require('./client-brief.test'),
+  require('./marketing-brief.test'),
   require('./history.test'),
   require('./backup.test')
 ];

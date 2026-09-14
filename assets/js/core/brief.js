@@ -157,7 +157,12 @@ window.FW = window.FW || {};
       if (!found.length) found.push(explicit[1].trim().toLowerCase());
     }
     if (!found.length) {
-      TONES.forEach(function (t) { if (new RegExp('\\b' + t + '\\b', 'i').test(text)) found.push(t); });
+      /* A tone word attached to a noun like "website" or "source" is describing
+         something else — "an authoritative website" is not a house style. */
+      var NOT_A_TONE = '(?!\\s+(?:website|site|sites|source|sources|domain|domains|article|articles|link|links|publication|publications|figure|figures))';
+      TONES.forEach(function (t) {
+        if (new RegExp('\\b' + t + '\\b' + NOT_A_TONE, 'i').test(text)) found.push(t);
+      });
     }
     return U.unique(found).slice(0, 5);
   }
@@ -271,6 +276,23 @@ window.FW = window.FW || {};
     if (/\bquotes?\b|\binterview\b|\bexpert (?:opinion|comment)\b/i.test(text)) s.quotes = true;
     var links = text.match(/(\d+)\s*(?:internal|external|outbound|authoritative)?\s*links?\b/i);
     if (links) s.links = num(links[1]);
+
+    /* "The keyword should link to an outside relevant article on an authoritative
+       website at least once" — a requirement with no number in it, phrased as a
+       verb, which a pattern looking for "N links" cannot see. */
+    var linkOut = text.match(/\blinks?\s+(?:out\s+)?to\b[^.\n]{0,100}?\b(?:outside|external|authoritative|reputable|third[- ]party|high[- ]authority)\b/i) ||
+      text.match(/\b(?:outbound|external)\s+links?\b/i);
+    if (linkOut) {
+      var howMany = text.match(/\bat least\s+(once|twice|\d+)\b/i);
+      var n = 1;
+      if (howMany) {
+        var word = howMany[1].toLowerCase();
+        n = word === 'once' ? 1 : word === 'twice' ? 2 : num(word);
+      }
+      s.externalLinks = Math.max(1, n);
+      /* The rule is about the keyword itself carrying the link, not any link. */
+      s.keywordLinks = /\bkeywords?\b[^.\n]{0,40}?\blinks?\b/i.test(text);
+    }
     /* "at least 2 APA or AMA-style citations" puts three words between the
        number and the noun, so allow a short adjective run. */
     var sources = text.match(/(\d+)\s*(?:[\w.–-]+\s+){0,4}?(?:sources?|references?|citations?)\b/i);
@@ -447,6 +469,12 @@ window.FW = window.FW || {};
       (structure.imageSize ? 'Feature image ' + structure.imageSize + '. ' : '') + 'Use the royalty-free finder and log the licence.');
     if (structure.quotes) check('quotes', 'structure', 'Include quotes or expert comment', '');
     if (structure.links) check('links', 'structure', 'Include at least ' + structure.links + ' links', '');
+    if (structure.externalLinks) {
+      check('extlinks', 'structure',
+        (structure.keywordLinks ? 'Link the keyword out to an authoritative source' : 'Link out to an authoritative source') +
+          (structure.externalLinks > 1 ? ' (' + structure.externalLinks + ' times)' : ''),
+        structure.keywordLinks ? 'The anchor text has to be the keyword itself.' : '');
+    }
     if (structure.sources) check('sources', 'structure', 'Cite at least ' + structure.sources + ' sources', '');
     if (meta.citationStyle) check('citestyle', 'citation', 'Use ' + meta.citationStyle + ' citation style', 'Set the citation generator to match.');
     if (meta.submission) {
@@ -485,6 +513,21 @@ window.FW = window.FW || {};
 
   function buildGaps(meta, instructions) {
     var gaps = [];
+
+    /* A five-word keyword used once in a 300-word piece is already 1.67%. If the
+       brief caps density below that, no draft can satisfy both rules, and the
+       writer should hear it now rather than after the first amber warning. */
+    if (meta.keywordDensity && meta.wordCount && meta.wordCount.max) {
+      (meta.keywords || []).forEach(function (k) {
+        var termWords = String(k.term).trim().split(/\s+/).length;
+        var floorPct = (termWords / meta.wordCount.max) * 100;
+        if (floorPct > meta.keywordDensity.max) {
+          gaps.push('“' + k.term + '” is ' + termWords + ' words, so using it even once in ' +
+            meta.wordCount.max + ' words is ' + floorPct.toFixed(1) + '% — above the ' +
+            meta.keywordDensity.max + '% cap. The brief contradicts itself; ask which rule wins.');
+        }
+      });
+    }
     if (!meta.wordCount) gaps.push('No word count stated — confirm the target length before drafting.');
     if (!meta.deadline) gaps.push('No deadline found — get one in writing.');
     if (!meta.audience) gaps.push('Audience is unstated. Ask who the reader is; it changes everything downstream.');
