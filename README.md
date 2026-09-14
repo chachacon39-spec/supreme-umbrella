@@ -233,7 +233,7 @@ and boilerplate.
 
 ```
 npm install        # Playwright only — the app itself still has no dependencies
-npm test           # 402 assertions, about a minute
+npm test           # 430 assertions, about a minute
 ```
 
 Three suites, run in order of how fast they fail:

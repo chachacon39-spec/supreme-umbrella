@@ -320,6 +320,58 @@ async function run() {
       'moves a leading subordinate clause to the end');
     t.match(rewrite('Demand peaks in summer, so payback periods are shorter there.'), /^Because demand peaks/i,
       'recasts "so" as "because"');
+
+    /* An expletive wrapping a passive needs two passes. One pass alone produced
+       "The reviewers raised there are several issues that." */
+    var compound = rewrite('There are several issues that were raised by the reviewers.');
+    t.match(compound, /^The reviewers raised several issues/i,
+      'unwinds an expletive wrapped around a passive');
+    t.notMatch(compound, /there are/i, 'with no fragment of the expletive left behind');
+
+    /* A leading adverbial must stay at the front, not be dragged into the
+       object slot: "The steering group conducted to decide about the timeline,
+       a review." was the earlier output. */
+    var adverbial = rewrite('In order to make a decision about the timeline, a review was conducted by the steering group.');
+    t.match(adverbial, /^To decide .*,\s*the steering group conducted a review/i,
+      'keeps a leading adverbial at the front when going active');
+  });
+
+  await t.section('paraphraser — it agrees with the checker', function () {
+    /* The app flags passive voice, expletive openings and wordiness. A
+       paraphrase that increased any of them would have the two engines
+       contradicting each other. */
+    var messy = 'The report was written by the marketing team. There are several issues that ' +
+      'were raised by the reviewers. It is important to note that the budget was approved by ' +
+      'the board. In order to make a decision about the timeline, a review was conducted by ' +
+      'the steering group.';
+
+    function complaints(text) {
+      var r = FW.analyzer.analyze(text, { checks: {}, language: 'en-US' });
+      var out = { passive: 0, expletive: 0, wordy: 0 };
+      r.issues.forEach(function (i) {
+        if (/passive/.test(i.rule)) out.passive++;
+        else if (/expletive/.test(i.rule)) out.expletive++;
+        else if (/wordy/.test(i.rule)) out.wordy++;
+      });
+      return out;
+    }
+
+    var before = complaints(messy);
+    t.atLeast(before.passive, 3, 'the sample really is full of passive voice');
+
+    FW.paraphrase.MODES.forEach(function (mode) {
+      var after = complaints(FW.paraphrase.paraphrase(messy, mode.id, 'fixed').text);
+      t.atMost(after.passive, before.passive, mode.label + ': does not add passive voice');
+      t.atMost(after.expletive, before.expletive, mode.label + ': does not add expletive openings');
+      t.atMost(after.wordy, before.wordy, mode.label + ': does not add wordiness');
+    });
+
+    /* The modes built for tightening must actively reduce it. */
+    ['standard', 'simple', 'shorten'].forEach(function (mode) {
+      var after = complaints(FW.paraphrase.paraphrase(messy, mode, 'fixed').text);
+      t.equal(after.passive, 0, mode + ': clears the passive voice entirely');
+      t.equal(after.expletive, 0, mode + ': clears the expletive openings');
+    });
   });
 
   await t.section('paraphraser — it does not break the sentence', function () {

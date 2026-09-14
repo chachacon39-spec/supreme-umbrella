@@ -141,6 +141,22 @@ window.FW = window.FW || {};
 
     var subject = m[1].trim(), participle = m[2].toLowerCase(), agent = m[3].trim();
 
+    /* "There are several issues that were raised by X" would otherwise yield
+       "X raised there are several issues that". Leave it to removeExpletive. */
+    if (/^there\s+(?:is|are|was|were)\b/i.test(subject)) return null;
+    if (/\b(?:that|which|who)$/i.test(subject)) return null;
+
+    /* A leading adverbial stays at the front rather than being dragged into the
+       object slot: "In order to X, a review was conducted by Y" becomes
+       "In order to X, Y conducted a review". */
+    var prefix = '';
+    var leading = subject.match(/^(.*?,\s*)(.+)$/);
+    if (leading) {
+      prefix = leading[1];
+      subject = leading[2].trim();
+      if (!subject || U.wordCount(subject) > 12) return null;
+    }
+
     /* "by the board last spring" — the time phrase belongs at the end of the
        new sentence, not inside the subject. */
     var tail = '';
@@ -157,8 +173,9 @@ window.FW = window.FW || {};
       (/ed$/.test(participle) ? participle : null);
     if (!past) return null;
 
+    var body = (prefix ? decap(agent) : upper(decap(agent))) + ' ' + past + ' ' + decap(subject) + tail;
     return {
-      text: upper(decap(agent)) + ' ' + past + ' ' + decap(subject) + tail,
+      text: (prefix ? upper(prefix) + body : body),
       note: 'passive → active'
     };
   }
@@ -170,17 +187,17 @@ window.FW = window.FW || {};
     if (m) {
       /* "There are three factors that determine X" -> "Three factors determine X":
          the noun phrase leads and the relative clause becomes the predicate. */
-      return { text: upper(decap(m[1].trim())) + ' ' + decap(m[2].trim()), note: 'dropped "there is/are"' };
+      return { text: upper(decap(m[1].trim())) + ' ' + decap(m[2].trim()), note: 'dropped "there is/are"', exposes: true };
     }
     m = text.match(/^It\s+(?:is|was)\s+(?:important|worth|necessary|useful|helpful)\s+to\s+(?:note|remember|say)\s+that\s+(.+)$/i);
-    if (m) return { text: upper(decap(m[1].trim())), note: 'dropped the throat-clearing opener' };
+    if (m) return { text: upper(decap(m[1].trim())), note: 'dropped the throat-clearing opener', exposes: true };
 
     m = text.match(/^It\s+(?:is|was)\s+(?:clear|evident|obvious|apparent)\s+that\s+(.+)$/i);
-    if (m) return { text: upper(decap(m[1].trim())), note: 'dropped "it is clear that"' };
+    if (m) return { text: upper(decap(m[1].trim())), note: 'dropped "it is clear that"', exposes: true };
 
     m = text.match(/^There\s+(?:is|are|was|were)\s+(.+)$/i);
     if (m && U.wordCount(m[1]) > 3) {
-      return { text: upper(decap(m[1].trim())) + ' exists', note: 'dropped "there is/are"' };
+      return { text: upper(decap(m[1].trim())) + ' exists', note: 'dropped "there is/are"', exposes: true };
     }
     return null;
   }
@@ -411,11 +428,11 @@ window.FW = window.FW || {};
 
   /* Which structural rules each mode may use, in the order they are tried. */
   var RULES_BY_MODE = {
-    standard: [passiveToActive, removeExpletive, unburyVerb, reduceRelative, moveClause, recastConjunction],
-    formal: [passiveToActive, unburyVerb, moveClause, recastConjunction],
-    simple: [passiveToActive, removeExpletive, unburyVerb, reduceRelative, splitSentence],
-    creative: [passiveToActive, removeExpletive, moveClause, recastConjunction, splitSentence],
-    shorten: [removeExpletive, unburyVerb, reduceRelative, passiveToActive],
+    standard: [removeExpletive, passiveToActive, unburyVerb, reduceRelative, moveClause, recastConjunction],
+    formal: [removeExpletive, passiveToActive, unburyVerb, moveClause, recastConjunction],
+    simple: [removeExpletive, passiveToActive, unburyVerb, reduceRelative, splitSentence],
+    creative: [removeExpletive, passiveToActive, moveClause, recastConjunction, splitSentence],
+    shorten: [removeExpletive, passiveToActive, unburyVerb, reduceRelative],
     expand: [expandSentence, passiveToActive, moveClause]
   };
 
@@ -428,15 +445,30 @@ window.FW = window.FW || {};
     var text = stripTerminal(sentence);
     var notes = [];
 
-    /* 1. Structural rules first — they reshape the sentence the others polish. */
+    /* 1. Structural rules first — they reshape the sentence the others polish.
+       One change per sentence, with a single exception: dropping an expletive
+       can expose a passive underneath ("There are issues that were raised by
+       X"), so that case alone gets a second pass. Allowing a general second
+       pass just lets rules undo each other — moving a clause that the previous
+       rule had only just created. */
     var rules = RULES_BY_MODE[mode] || RULES_BY_MODE.standard;
-    for (var i = 0; i < rules.length; i++) {
-      var result = rules[i](text, rnd);
-      if (result && result.text && result.text !== text) {
-        text = result.text;
-        notes.push(result.note);
-        break; /* one structural change per sentence keeps the meaning safe */
+    var used = {};
+
+    for (var pass = 0; pass < 2; pass++) {
+      var applied = null;
+      for (var i = 0; i < rules.length; i++) {
+        if (used[i]) continue;
+        var result = rules[i](text, rnd);
+        if (result && result.text && result.text !== text) {
+          text = result.text;
+          notes.push(result.note);
+          used[i] = true;
+          applied = result;
+          break;
+        }
       }
+      /* Only a rule that says it uncovered something takes a second pass. */
+      if (!applied || !applied.exposes) break;
     }
 
     /* 2. Wordiness and filler. */
