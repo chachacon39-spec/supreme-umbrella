@@ -11,6 +11,7 @@ var SUITES = [
   require('./app.test'),
   require('./client-brief.test'),
   require('./marketing-brief.test'),
+  require('./flight-schools.test'),
   require('./history.test'),
   require('./backup.test')
 ];
@@ -44,7 +45,7 @@ async function main() {
     totalAssertions += s.total;
     totalFailed += s.failed;
     var mark = s.failed ? RED + 'FAIL' + OFF : GREEN + 'pass' + OFF;
-    console.log('  ' + mark + '  ' + s.name.padEnd(14) +
+    console.log('  ' + mark + '  ' + s.name.padEnd(17) +
       String(s.total - s.failed) + '/' + s.total + ' assertions   ' + s.seconds + 's');
   });
 

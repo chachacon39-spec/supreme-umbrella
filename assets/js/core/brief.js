@@ -328,6 +328,56 @@ window.FW = window.FW || {};
     return null;
   }
 
+  var NUMBER_WORDS = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 };
+  function numWord(s) {
+    s = String(s).toLowerCase();
+    return NUMBER_WORDS[s] !== undefined ? NUMBER_WORDS[s] : num(s);
+  }
+
+  /* Nearly every brief on a content portal has the same shape: "a breakdown of
+     the 5 top-rated flight schools, including rates, course hours and course
+     structure". The count and the per-item coverage are the whole assignment,
+     and a piece that covers four of five is short however well it is written. */
+  /* The count refers to the things being written about. "At least 2 APA-style
+     citations" is a rule about the apparatus, not the subject matter. */
+  var NOT_SUBJECT = /\b(?:citations?|references?|sources?|words?|images?|photos?|links?|lines?|paragraphs?|subheadings?|headings?|characters?|pages?|days?|formats?)\b/i;
+
+  function findItemCount(text) {
+    var patterns = [
+      /\b(?:breakdown|rundown|description|overview|roundup|comparison|list)\s+(?:and breakdown\s+)?of\s+(?:the\s+)?(\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten)\b\s*([\w\s/'-]{0,70}?)(?=[,.]|\s+(?:in|for|that|which|from|with|to)\b|$)/gi,
+      /\b(?:discuss(?:es|ing)?|cover(?:s|ing)?|compar(?:e|es|ing)|includ(?:e|es|ing)|featur(?:e|es|ing)|profil(?:e|es|ing))\s+(?:at least\s+)?(\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten)\s+((?:other\s+)?[\w\s/'-]{2,70}?)(?=[,.]|\s+(?:in|for|that|which|from|with|or|to)\b|$)/gi,
+      /\btop[- ](?:rated\s+)?(\d{1,2})\b\s*([\w\s/'-]{0,70}?)(?=[,.]|\s+(?:in|for|that|which)\b|$)/gi,
+      /\bat least\s+(\d{1,2}|two|three|four|five|six|seven|eight|nine|ten)\s+([\w\s/'-]{2,70}?)(?=[,.]|\s+(?:to|in|for|that|which|from|with)\b|$)/gi
+    ];
+    for (var i = 0; i < patterns.length; i++) {
+      var candidates = matchAll(patterns[i], text);
+      for (var j = 0; j < candidates.length; j++) {
+        var m = candidates[j];
+        var n = numWord(m[1]);
+        if (!(n >= 2 && n <= 20)) continue;
+        var noun = String(m[2] || '').replace(/\s+/g, ' ').trim()
+          .replace(/^(?:top[- ]rated|other|new|different)\s+/i, '');
+        if (NOT_SUBJECT.test(noun)) continue;
+        if (!noun) continue;
+        return { count: n, noun: noun };
+      }
+    }
+    return null;
+  }
+
+  /* "including rates, course hours and course structure/overview" — three things
+     the client will look for by name. */
+  function findCoveragePoints(text) {
+    var m = text.match(/\bincluding\s+([^.\n]{4,140})/i);
+    if (!m) return [];
+    return U.unique(m[1].split(/\s*,\s*|\s+and\s+/i).map(function (part) {
+      return part.replace(/^(?:a|an|the)\s+/i, '').replace(/[.;:]+$/, '').trim();
+    }).filter(function (part) {
+      /* Fragments like "how these incorporate drones" are clauses, not topics. */
+      return part.length >= 3 && part.length <= 48 && !/^(?:how|why|what|when|where|which|that)\b/i.test(part);
+    })).slice(0, 6);
+  }
+
   /* SEO briefs state a density band and then check it. "1-2%" and "around 2%"
      both mean the same thing to a human and nothing at all to a word counter. */
   function findKeywordDensity(text) {
@@ -423,6 +473,8 @@ window.FW = window.FW || {};
       banned: findBannedTerms(normalized),
       structure: structure,
       keywordDensity: findKeywordDensity(normalized),
+      items: findItemCount(normalized),
+      coverage: findCoveragePoints(normalized),
       /* Most academic-ish briefs exempt the reference list from the count, and a
          writer who trims real copy to make room for it has lost words for free. */
       countExcludesCitations: /(?:citations?|references?|sources?|bibliograph\w*)[^.\n]{0,60}?(?:do|does|are|is)\s*n[o']t\s*(?:count|included|included in)/i.test(normalized) ||
@@ -465,6 +517,14 @@ window.FW = window.FW || {};
     if (structure.titleOptions) check('titles', 'deliverable', 'Supply ' + structure.titleOptions + ' headline options', '');
     if (structure.table) check('table', 'structure', 'Include a table', '');
     if (structure.bullets) check('bullets', 'structure', 'Include bulleted lists', '');
+    if (meta.items) {
+      check('items', 'structure', 'Cover ' + meta.items.count + ' ' + meta.items.noun,
+        'The brief asks for ' + meta.items.count + '. Counted from subheadings and list items.');
+    }
+    meta.coverage.forEach(function (point, i) {
+      check('cover-' + i, 'coverage', 'Cover “' + point + '”',
+        meta.items ? 'The brief asks for this on each of the ' + meta.items.count + '.' : '');
+    });
     if (structure.images) check('images', 'deliverable', 'Supply or specify images',
       (structure.imageSize ? 'Feature image ' + structure.imageSize + '. ' : '') + 'Use the royalty-free finder and log the licence.');
     if (structure.quotes) check('quotes', 'structure', 'Include quotes or expert comment', '');

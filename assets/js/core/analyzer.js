@@ -436,11 +436,19 @@ window.FW = window.FW || {};
       /* The brief orders these words repeated to a density target. Flagging them
          as repetition sets the app against its own compliance panel. */
       var required = {};
-      ((opts.analysis && opts.analysis.meta && opts.analysis.meta.keywords) || []).forEach(function (k) {
-        String(k.term || '').toLowerCase().split(/[^a-z0-9'’-]+/).forEach(function (w) {
-          if (w.length > 3) required[w] = true;
+      var briefMeta = (opts.analysis && opts.analysis.meta) || {};
+      function exemptPhrase(phrase) {
+        String(phrase || '').toLowerCase().split(/[^a-z0-9'’-]+/).forEach(function (w) {
+          if (w.length <= 3) return;
+          required[w] = true;
+          /* A keyword saying "flight schools" licenses "school" too. */
+          required[/s$/.test(w) ? w.replace(/s$/, '') : w + 's'] = true;
         });
-      });
+      }
+      (briefMeta.keywords || []).forEach(function (k) { exemptPhrase(k.term); });
+      /* "Including rates, course hours and course structure" on each of five
+         schools means those words appear five times by instruction. */
+      (briefMeta.coverage || []).forEach(exemptPhrase);
       repeatedWords(text, sentences, required).forEach(add);
 
       /* Repeated phrases (3-grams) */
@@ -512,7 +520,12 @@ window.FW = window.FW || {};
       Object.keys(L.TRANSITIONS).forEach(function (k) { transitionWords = transitionWords.concat(L.TRANSITIONS[k]); });
       var transRe = new RegExp('\\b(' + transitionWords.map(escapeRe).join('|') + ')\\b', 'i');
       var runLength = 0;
+      /* "A breakdown of the 5 top-rated schools" is a list by instruction. Warning
+         that it reads as one is the checker arguing with the brief. */
+      var enumerated = (opts.analysis && opts.analysis.meta && opts.analysis.meta.items &&
+        opts.analysis.meta.items.count >= 3);
       paragraphs.forEach(function (p, idx) {
+        if (enumerated) return;
         if (transRe.test(p.text)) runLength = 0; else runLength++;
         if (runLength === 4) {
           add({
@@ -694,6 +707,18 @@ window.FW = window.FW || {};
   var STOPSET = {};
   STOP.split(' ').forEach(function (w) { STOPSET[w] = true; });
 
+  /* The neighbour has to be a real name, not the capital that starts a
+     sentence: "The Academy" is one word of a name, "This Course" is not. */
+  function nextToProperNoun(text, m) {
+    var before = text.slice(Math.max(0, m.index - 40), m.index);
+    var after = text.slice(m.index + m[0].length, m.index + m[0].length + 40);
+    var prev = before.match(/([A-Za-z][A-Za-z'’-]+)\s+$/);
+    var next = after.match(/^\s+([A-Z][A-Za-z'’-]+)/);
+    if (prev && /^[A-Z]/.test(prev[1]) && !STOPSET[prev[1].toLowerCase()]) return true;
+    if (next && !STOPSET[next[1].toLowerCase()]) return true;
+    return false;
+  }
+
   function repeatedWords(text, sentences, exempt) {
     var out = [];
     var tokens = [];
@@ -702,6 +727,14 @@ window.FW = window.FW || {};
     while ((m = re.exec(text)) !== null) {
       var w = m[0].toLowerCase();
       if (STOPSET[w] || exempt[w]) continue;
+      /* "Part 141", "Section 5", "Boeing 737" — a capitalised word carrying a
+         number is a designation. Telling a writer to vary it is telling them to
+         rename the regulation. */
+      if (/^[A-Z]/.test(m[0]) && /^\s+\d/.test(text.slice(m.index + m[0].length, m.index + m[0].length + 4))) continue;
+      /* A piece about five named schools says "Academy" three times because
+         three of them are called one. A capitalised word sitting next to
+         another capitalised word is part of a name, not a writer's vocabulary. */
+      if (/^[A-Z]/.test(m[0]) && nextToProperNoun(text, m)) continue;
       tokens.push({ word: w, start: m.index, end: m.index + m[0].length });
     }
     var byWord = {};
@@ -753,10 +786,14 @@ window.FW = window.FW || {};
       if (hits.length < 2) return;
       /* Report the second occurrence only — one flag per repeated phrase. */
       var h = hits[1];
+      /* The key is normalised for matching — lower-cased, numbers dropped — so
+         quoting it sends the writer looking for words that are not in their
+         draft ("part course structure" for "Part 141 course structure"). */
+      var asWritten = text.slice(h.start, h.end).replace(/\s+/g, ' ');
       out.push({
         rule: 'phrase-repetition', type: 'structure', severity: 'warning',
         start: h.start, end: h.end,
-        message: 'The phrase “' + key + '” is used ' + hits.length + ' times. Repetition like this reads as padding.',
+        message: 'The phrase “' + asWritten + '” is used ' + hits.length + ' times. Repetition like this reads as padding.',
         fix: null
       });
     });

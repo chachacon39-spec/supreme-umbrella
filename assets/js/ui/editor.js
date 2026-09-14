@@ -1007,7 +1007,24 @@ window.FW = window.FW || {};
           break;
         }
         case 'structure': {
-          if (/subheading/i.test(c.label)) {
+          if (/^Cover \d+ /.test(c.label)) {
+            /* A "breakdown of 5 schools" is delivered as five subheads or five
+               list items. Counting them is rough, but a piece covering four of
+               five is short, and nothing else in the app would notice. */
+            var want = (analysis.meta.items && analysis.meta.items.count) || 0;
+            var subheads = refs.editor.querySelectorAll('h2, h3').length;
+            var listItems = refs.editor.querySelectorAll('li').length;
+            var boldLeads = Array.prototype.filter.call(
+              refs.editor.querySelectorAll('p > strong:first-child'),
+              function (b) { return b.parentElement.textContent.trim() === b.textContent.trim(); }).length;
+            var found = Math.max(subheads, listItems, boldLeads);
+            out.push({
+              label: c.label,
+              status: found >= want ? 'pass' : found ? 'warn' : 'manual',
+              detail: found + ' subheading' + (found === 1 ? '' : 's') +
+                ', list items or bold leads in the draft — the brief asks for ' + want
+            });
+          } else if (/subheading/i.test(c.label)) {
             var need = analysis.meta.structure.sections || 0;
             out.push({ label: c.label, status: headings >= need ? 'pass' : 'warn', detail: headings + ' of ' + need + ' in the draft' });
           } else if (/FAQ/i.test(c.label)) {
@@ -1064,6 +1081,37 @@ window.FW = window.FW || {};
                 : firstP + secondP < Math.max(3, words / 200);
             out.push({ label: c.label, status: words < 60 ? 'manual' : ok ? 'pass' : 'warn', detail: firstP + ' first-person, ' + secondP + ' second-person markers' });
           } else out.push({ label: c.label, status: 'manual', detail: c.detail });
+          break;
+        }
+        case 'coverage': {
+          /* The client will look for these words by name. "course structure/
+             overview" counts either way round, and a draft writing "course
+             structures" has met the same requirement, so count each stem with
+             its inflection in one pass instead of picking one spelling. */
+          var point = c.label.replace(/^Cover “|”$/g, '');
+          var stems = [point].concat(point.split(/\s*\/\s*/));
+          var head = point.split(/\s+/).slice(-1)[0];
+          if (head && head.length > 3) stems.push(head);
+
+          var mentions = 0;
+          U.unique(stems).forEach(function (stem) {
+            if (!stem) return;
+            var base = stem.replace(/s$/i, '');
+            var re = new RegExp('\\b' + base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + 's?\\b', 'gi');
+            var n = (text.match(re) || []).length;
+            if (n > mentions) mentions = n;
+          });
+
+          /* When the brief asks for this on each of N items, one mention across
+             the whole piece means the other items are missing it. */
+          var perItem = analysis.meta.items && analysis.meta.items.count;
+          var coverStatus = mentions ? 'pass' : 'fail';
+          var coverDetail = mentions ? mentions + ' mention' + (mentions === 1 ? '' : 's') : 'not mentioned yet';
+          if (perItem) {
+            coverDetail += ' across ' + perItem + ' items';
+            if (mentions && mentions < perItem) { coverStatus = 'warn'; coverDetail += ' — some are missing it'; }
+          }
+          out.push({ label: c.label, status: coverStatus, detail: coverDetail });
           break;
         }
         case 'citation':
