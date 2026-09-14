@@ -30,7 +30,14 @@ window.FW = window.FW || {};
       style: true, inclusive: true, readability: true, spelling: true
     },
     autoCheck: true,
-    focusMode: false
+    focusMode: false,
+
+    /* Backup safety. Everything lives in this browser, so the app has to be
+       the thing that remembers — the writer should not have to. */
+    lastBackupAt: 0,
+    lastBackupWords: 0,
+    backupSnoozedUntil: 0,
+    backupReminders: true
   };
 
   var state = {
@@ -62,11 +69,37 @@ window.FW = window.FW || {};
   /* ---------- persistence ---------- */
   var persist = U.debounce(function () {
     U.save('tasks', state.tasks);
-    U.save('docs', state.docs);
     U.save('citations', state.citations);
     U.save('snippets', state.snippets);
     U.save('settings', state.settings);
     U.save('activeTaskId', state.activeTaskId);
+
+    /* Documents carry version history and are by far the largest value. If the
+       browser refuses it, shed old versions and retry — losing history is
+       recoverable, losing the draft is not. */
+    if (U.save('docs', state.docs)) return;
+
+    /* Shed version history in escalating steps. The draft outranks its history:
+       history is a convenience, an unsaved draft is lost work. */
+    var budgets = [HISTORY_MAX_BYTES / 4, HISTORY_MAX_BYTES / 16];
+    for (var i = 0; i < budgets.length; i++) {
+      var budget = budgets[i];
+      Object.keys(state.docs).forEach(function (id) { trimHistory(state.docs[id], budget); });
+      if (U.save('docs', state.docs)) { emit('storage:trimmed', state.docs); return; }
+    }
+
+    Object.keys(state.docs).forEach(function (id) { state.docs[id].history = []; });
+    if (U.save('docs', state.docs)) { emit('storage:trimmed', state.docs); return; }
+
+    /* Last resort: persist the drafts alone, stripped of everything optional. */
+    var minimal = {};
+    Object.keys(state.docs).forEach(function (id) {
+      var d = state.docs[id];
+      minimal[id] = { id: d.id, taskId: d.taskId, title: d.title, html: d.html, updatedAt: d.updatedAt, history: [] };
+    });
+    if (U.save('docs', minimal)) { emit('storage:trimmed', state.docs); return; }
+
+    emit('storage:full', state.docs);
   }, 300);
 
   /* The browser can be closed inside the autosave window, so flush on the way out. */
@@ -210,14 +243,62 @@ window.FW = window.FW || {};
     return doc;
   }
 
-  function saveDoc(docId, html, opts) {
+  /* Version history is bounded by entry count AND bytes: localStorage is a shared
+     ~5MB budget, and a long draft snapshotted 30 times would evict the whole
+     workspace rather than just old versions. */
+  var HISTORY_MAX_ENTRIES = 30;
+  var HISTORY_MAX_BYTES = 400000;
+  var HISTORY_MIN_KEEP = 3;
+
+  function historyBytes(doc) {
+    return (doc.history || []).reduce(function (n, h) { return n + (h.html || '').length; }, 0);
+  }
+
+  function trimHistory(doc, maxBytes) {
+    if (!doc.history) { doc.history = []; return; }
+    if (doc.history.length > HISTORY_MAX_ENTRIES) doc.history.length = HISTORY_MAX_ENTRIES;
+    var budget = maxBytes === undefined ? HISTORY_MAX_BYTES : maxBytes;
+    var bytes = 0;
+    for (var i = 0; i < doc.history.length; i++) {
+      bytes += (doc.history[i].html || '').length;
+      if (bytes > budget && i >= HISTORY_MIN_KEEP) { doc.history.length = i; return; }
+    }
+  }
+
+  /* Capture the document as it stands right now. Callers snapshot *before* a
+     destructive change ("before …") or *after* a milestone ("outline scaffold"). */
+  function snapshotDoc(docId, label, html) {
     var doc = state.docs[docId];
     if (!doc) return null;
-    opts = opts || {};
-    if (opts.snapshot && doc.html && doc.html !== html) {
-      doc.history.unshift({ at: Date.now(), html: doc.html, label: opts.label || 'snapshot' });
-      doc.history = doc.history.slice(0, 25);
+    var content = html === undefined ? doc.html : html;
+    if (!content || !U.stripHtml(content).trim()) return null;
+
+    var newest = doc.history[0];
+    if (newest && newest.html === content) {
+      /* Same content already captured — relabel rather than store it twice. */
+      newest.at = Date.now();
+      if (label) newest.label = label;
+      persist();
+      return newest;
     }
+
+    var entry = {
+      at: Date.now(),
+      html: content,
+      label: label || 'snapshot',
+      words: U.wordCount(U.stripHtml(content))
+    };
+    doc.history.unshift(entry);
+    trimHistory(doc);
+    persist();
+    emit('doc:snapshot', { doc: doc, entry: entry });
+    return entry;
+  }
+
+  function saveDoc(docId, html) {
+    var doc = state.docs[docId];
+    if (!doc) return null;
+    if (doc.html === html) return doc;
     doc.html = html;
     doc.updatedAt = Date.now();
     persist();
@@ -229,13 +310,20 @@ window.FW = window.FW || {};
     var doc = state.docs[docId];
     if (!doc || !doc.history[index]) return null;
     var entry = doc.history[index];
-    doc.history.unshift({ at: Date.now(), html: doc.html, label: 'before restore' });
+    /* Restoring is itself undoable. */
+    snapshotDoc(docId, 'before restoring an earlier version');
     doc.html = entry.html;
     doc.updatedAt = Date.now();
     persist();
     emit('doc:saved', doc);
     emit('doc:restored', doc);
     return doc;
+  }
+
+  function historyStats(docId) {
+    var doc = state.docs[docId];
+    if (!doc) return { entries: 0, bytes: 0 };
+    return { entries: (doc.history || []).length, bytes: historyBytes(doc) };
   }
 
   /* ---------- citations ---------- */
@@ -287,6 +375,85 @@ window.FW = window.FW || {};
   function setView(view) {
     state.activeView = view;
     emit('view:changed', view);
+  }
+
+  /* ---------- backup safety ----------
+     Nudging is based on work at risk, not just elapsed time: a writer who has
+     not touched the app in a month has nothing new to lose, and one who wrote
+     3,000 words this morning has a great deal. */
+  var BACKUP = {
+    firstBackupWords: 400,   /* never backed up: nudge once there is real work */
+    staleDays: 7,            /* backed up before: how long counts as stale */
+    staleWords: 250,         /* ...and how much new writing counts as at risk */
+    snoozeDays: 3
+  };
+
+  function totalWords() {
+    var total = 0;
+    Object.keys(state.docs).forEach(function (id) {
+      total += U.wordCount(U.stripHtml(state.docs[id].html || ''));
+    });
+    return total;
+  }
+
+  function backupStatus() {
+    var settings = state.settings;
+    var words = totalWords();
+    var wordsSince = Math.max(0, words - (settings.lastBackupWords || 0));
+    var daysSince = settings.lastBackupAt
+      ? Math.floor((Date.now() - settings.lastBackupAt) / 86400000) : null;
+
+    var status = {
+      totalWords: words,
+      wordsSince: wordsSince,
+      daysSince: daysSince,
+      lastBackupAt: settings.lastBackupAt || 0,
+      neverBackedUp: !settings.lastBackupAt,
+      tasks: state.tasks.length,
+      snoozed: Date.now() < (settings.backupSnoozedUntil || 0),
+      remindersOff: settings.backupReminders === false,
+      state: 'ok',
+      atRisk: false
+    };
+
+    if (!words) { status.state = 'empty'; return status; }
+
+    if (status.neverBackedUp) {
+      status.state = words >= BACKUP.firstBackupWords ? 'never' : 'new';
+      status.atRisk = words >= BACKUP.firstBackupWords;
+    } else if (daysSince >= BACKUP.staleDays && wordsSince >= BACKUP.staleWords) {
+      status.state = 'stale';
+      status.atRisk = true;
+    } else if (wordsSince >= BACKUP.staleWords * 4) {
+      /* A lot of new writing since the last backup, whatever the date. */
+      status.state = 'stale';
+      status.atRisk = true;
+    }
+
+    if (status.snoozed || status.remindersOff) status.atRisk = false;
+    return status;
+  }
+
+  function markBackedUp() {
+    state.settings.lastBackupAt = Date.now();
+    state.settings.lastBackupWords = totalWords();
+    state.settings.backupSnoozedUntil = 0;
+    persist();
+    emit('settings:changed', state.settings);
+    emit('backup:changed', backupStatus());
+  }
+
+  function snoozeBackupReminder(days) {
+    state.settings.backupSnoozedUntil = Date.now() + (days || BACKUP.snoozeDays) * 86400000;
+    persist();
+    emit('backup:changed', backupStatus());
+  }
+
+  function setBackupReminders(on) {
+    state.settings.backupReminders = !!on;
+    persist();
+    emit('settings:changed', state.settings);
+    emit('backup:changed', backupStatus());
   }
 
   /* ---------- import / export of the whole workspace ---------- */
@@ -341,9 +508,13 @@ window.FW = window.FW || {};
     getTask: getTask, tasksIn: tasksIn, addTask: addTask, updateTask: updateTask,
     removeTask: removeTask, duplicateTask: duplicateTask, moveTask: moveTask,
     getDoc: getDoc, docForTask: docForTask, saveDoc: saveDoc, restoreVersion: restoreVersion,
+    snapshotDoc: snapshotDoc, historyStats: historyStats, trimHistory: trimHistory,
     addCitation: addCitation, removeCitation: removeCitation,
     addSnippet: addSnippet, removeSnippet: removeSnippet,
     setSetting: setSetting, setActiveTask: setActiveTask, setView: setView,
+    backupStatus: backupStatus, markBackedUp: markBackedUp,
+    snoozeBackupReminder: snoozeBackupReminder, setBackupReminders: setBackupReminders,
+    totalWords: totalWords, BACKUP: BACKUP,
     exportAll: exportAll, importAll: importAll, resetAll: resetAll
   };
 })(window.FW);
