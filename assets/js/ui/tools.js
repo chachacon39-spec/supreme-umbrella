@@ -141,11 +141,38 @@ window.FW = window.FW || {};
 
       U.clear(out);
       out.style.display = '';
-      out.appendChild(el('div', { class: 'tiny dim', style: { marginBottom: '8px' } , text:
-        result.changedSentences + ' of ' + U.splitSentences(src.text).length + ' sentences rewritten · ' +
+
+      /* Say plainly when nothing applied, rather than presenting the input back
+         as though it were a rewrite. */
+      if (!result.changedSentences) {
+        out.appendChild(el('div', { class: 'empty', style: { marginBottom: '9px' } }, [
+          el('div', { text: 'Nothing to rewrite in ' + mode + ' mode.' }),
+          el('div', { class: 'tiny dim', style: { marginTop: '6px' },
+            text: 'No passive voice, buried verbs, wordy constructions or movable clauses in these ' +
+              result.totalSentences + ' ' + U.pluralize(result.totalSentences, 'sentence') +
+              '. Try a different mode, or take it as a sign the passage is already tight.' })
+        ]));
+        out.appendChild(el('div', { class: 'flex wrap' }, [
+          el('button', { class: 'btn btn-sm btn-ghost', text: 'Try another mode', onclick: run })
+        ]));
+        return;
+      }
+
+      out.appendChild(el('div', { class: 'tiny dim', style: { marginBottom: '8px' }, text:
+        result.changedSentences + ' of ' + result.totalSentences + ' ' +
+        U.pluralize(result.totalSentences, 'sentence') + ' rewritten · ' +
         result.wordsBefore + ' → ' + result.wordsAfter + ' words' }));
 
       out.appendChild(el('div', { class: 'tool-out', text: result.text }));
+
+      /* Structural changes are the ones worth reviewing, so surface them. */
+      var structural = result.notes.filter(function (n) { return n.indexOf('“') === -1; });
+      if (structural.length) {
+        out.appendChild(el('div', { class: 'flex wrap', style: { gap: '4px', marginTop: '8px' } },
+          U.unique(structural).slice(0, 6).map(function (n) {
+            return el('span', { class: 'chip chip-accent', text: n });
+          })));
+      }
 
       if (result.pairs.length) {
         var diffBox = el('div', {});
