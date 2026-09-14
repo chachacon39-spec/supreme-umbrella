@@ -307,8 +307,14 @@ window.FW = window.FW || {};
     '{TOPIC}: A Field Guide for {AUDIENCE}',
     'The Quiet Cost of Ignoring {TOPIC}',
     'Before You {TOPIC}, Read This',
-    '{TOPIC} Without the {OBSTACLE}',
-    'I Spent {NUMBER} Months on {TOPIC}. Here Is the Short Version.'
+    '{TOPIC} Without {OBSTACLE}',
+    /* Every formula here has to read correctly with a noun-phrase topic, which
+       is what briefs actually state. Anything needing a verb went. */
+    '{TOPIC}: What the Evidence Actually Shows',
+    '{TOPIC}, Explained Without the Hype',
+    'What Changes About {TOPIC} in {YEAR}',
+    'The Short, Honest Guide to {TOPIC}',
+    'The Case for Taking {TOPIC} Seriously'
   ];
 
   /* ---- Style-guide rule packs ---- */

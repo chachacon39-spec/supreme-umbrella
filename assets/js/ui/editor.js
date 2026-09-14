@@ -258,8 +258,20 @@ window.FW = window.FW || {};
   var BLOCK = /^(p|div|h[1-6]|li|blockquote|pre|tr|section|article|figure|figcaption|td|th)$/i;
 
   /* Walk the editor, building plain text plus a text-node offset map. */
+  /* The client's format is "introductory heading in bold", so a paragraph whose
+     whole content is bold is a heading too, whatever tag it uses. */
+  function isHeadingLike(node) {
+    var tag = node.tagName.toLowerCase();
+    if (/^h[1-6]$/.test(tag)) return true;
+    if (tag !== 'p' && tag !== 'div') return false;
+    var text = node.textContent.trim();
+    if (!text || text.length > 120) return false;
+    var strong = node.querySelector('strong, b');
+    return !!strong && strong.textContent.trim() === text;
+  }
+
   function textMap() {
-    var text = '', map = [];
+    var text = '', map = [], headings = [];
     (function walk(node) {
       for (var i = 0; i < node.childNodes.length; i++) {
         var child = node.childNodes[i];
@@ -272,12 +284,14 @@ window.FW = window.FW || {};
         } else if (child.nodeType === 1) {
           var tag = child.tagName.toLowerCase();
           if (tag === 'br') { text += '\n'; continue; }
+          var headStart = text.length, isHead = isHeadingLike(child);
           walk(child);
+          if (isHead && text.length > headStart) headings.push({ start: headStart, end: text.length });
           if (BLOCK.test(tag) && !/\n$/.test(text)) text += '\n';
         }
       }
     })(refs.editor);
-    return { text: text, map: map };
+    return { text: text, map: map, headings: headings };
   }
 
   function positionAt(map, offset) {
@@ -428,7 +442,8 @@ window.FW = window.FW || {};
       language: S.state.settings.language,
       styleGuide: S.state.settings.styleGuide,
       personaId: currentTask ? currentTask.personaId : null,
-      analysis: currentTask ? currentTask.analysis : null
+      analysis: currentTask ? currentTask.analysis : null,
+      headingRanges: tm.headings
     };
     lastResult = FW.analyzer.analyze(tm.text, opts);
     lastResult.text = tm.text;
@@ -907,8 +922,21 @@ window.FW = window.FW || {};
   }
 
   /* Evaluate what the brief demands against what is actually on the page. */
+  /* "Citations do not count toward the total word count" — so when the brief
+     says that, everything from the reference heading down is not copy. */
+  var REFERENCE_HEADING = /(?:^|\n)[ \t]*(?:references?|works cited|bibliography|citations?|sources?)[ \t]*:?[ \t]*(?:\n|$)/i;
+  function countedText(analysis, text) {
+    if (!analysis || !analysis.meta || !analysis.meta.countExcludesCitations) return text;
+    var m = text.match(REFERENCE_HEADING);
+    if (!m || m.index < text.length * 0.4) return text;
+    return text.slice(0, m.index);
+  }
+
   function evaluate(analysis, text) {
     var out = [];
+    var fullText = text;
+    text = countedText(analysis, text);
+    var excludedCitations = text !== fullText;
     var words = U.wordCount(text);
     var lower = text.toLowerCase();
     var headings = refs.editor ? refs.editor.querySelectorAll('h2, h3').length : 0;
@@ -917,7 +945,8 @@ window.FW = window.FW || {};
       switch (c.type) {
         case 'wordcount': {
           var wc = analysis.meta.wordCount;
-          var status = 'pass', detail = words.toLocaleString() + ' words so far';
+          var status = 'pass', detail = words.toLocaleString() + ' words so far' +
+            (excludedCitations ? ' (references excluded)' : '');
           if (wc.min && words < wc.min) { status = words > wc.min * 0.6 ? 'warn' : 'fail'; detail += ' — ' + (wc.min - words).toLocaleString() + ' short'; }
           else if (wc.max && words > wc.max) { status = 'fail'; detail += ' — ' + (words - wc.max).toLocaleString() + ' over'; }
           out.push({ label: c.label, detail: detail, status: status });
@@ -926,10 +955,20 @@ window.FW = window.FW || {};
         case 'keyword': {
           var term = c.label.replace(/^Use the keyword “|”$/g, '');
           var n = FW.analyzer.phraseCount(text, term);
-          out.push({
-            label: c.label, status: n > 0 ? 'pass' : 'fail',
-            detail: n > 0 ? 'appears ' + n + ' ' + U.pluralize(n, 'time') : 'not used yet'
-          });
+          var band = analysis.meta.keywordDensity;
+          var kwStatus = n > 0 ? 'pass' : 'fail';
+          var kwDetail = n > 0 ? 'appears ' + n + ' ' + U.pluralize(n, 'time') : 'not used yet';
+          /* Density is the count weighted by phrase length: a three-word phrase
+             used twice occupies six of the piece's words, not two. */
+          if (band && words) {
+            var termWords = term.trim().split(/\s+/).length;
+            var pct = (n * termWords / words) * 100;
+            kwDetail += ' — ' + pct.toFixed(2) + '% of ' + band.min + '–' + band.max + '%';
+            if (n === 0) kwStatus = 'fail';
+            else if (pct < band.min) { kwStatus = 'warn'; kwDetail += ' (thin)'; }
+            else if (pct > band.max) { kwStatus = 'warn'; kwDetail += ' (stuffed)'; }
+          }
+          out.push({ label: c.label, status: kwStatus, detail: kwDetail });
           break;
         }
         case 'banned': {
@@ -964,9 +1003,7 @@ window.FW = window.FW || {};
             var have = refs.editor.querySelectorAll('a[href]').length;
             out.push({ label: c.label, status: have >= need2 ? 'pass' : 'warn', detail: have + ' of ' + need2 });
           } else if (/sources/i.test(c.label)) {
-            var need3 = analysis.meta.structure.sources || 0;
-            var cites = S.state.citations.filter(function (x) { return x.taskId === currentTask.id; }).length;
-            out.push({ label: c.label, status: cites >= need3 ? 'pass' : 'warn', detail: cites + ' in the citation list' });
+            out.push({ label: c.label, status: 'manual', detail: 'Check these yourself before sending.' });
           } else if (/introduction/i.test(c.label)) {
             out.push({ label: c.label, status: words > 80 ? 'pass' : 'manual', detail: '' });
           } else if (/conclusion/i.test(c.label)) {
@@ -991,10 +1028,10 @@ window.FW = window.FW || {};
           break;
         }
         case 'citation':
-          out.push({
-            label: c.label, status: S.state.citations.length ? 'pass' : 'manual',
-            detail: S.state.citations.length + ' citations saved'
-          });
+          /* The app cannot tell a correct citation from a plausible one, and
+             grading typed references against its own list only ever produced a
+             warning on work that was already right. State the rule, no verdict. */
+          out.push({ label: c.label, status: 'manual', detail: c.detail });
           break;
         case 'deliverable':
           out.push({ label: c.label, status: 'manual', detail: c.detail });

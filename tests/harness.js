@@ -69,6 +69,12 @@ function createSuite(name) {
       return ok;
     },
 
+    notIncludes: function (haystack, needle, label) {
+      var ok = String(haystack).indexOf(needle) === -1;
+      record(ok, label, 'expected NOT to contain ' + JSON.stringify(needle));
+      return ok;
+    },
+
     fail: function (label, detail) { record(false, label, detail); return false; },
 
     /* Wrap a block so a throw becomes one failed assertion rather than a dead run. */

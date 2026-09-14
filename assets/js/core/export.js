@@ -332,15 +332,45 @@ window.FW = window.FW || {};
     return out.join('');
   }
 
-  var DOCX_STYLES = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+  /* Clients specify the typeface and the point size, and a portal will bounce a
+     file that ignores them — so the .docx has to carry whatever was asked for,
+     not whatever the studio happens to be showing on screen. Word measures type
+     in half-points, and headings scale from the body size rather than sitting at
+     fixed sizes, so 14pt body copy does not end up with 20pt headings. */
+  var DOCX_DEFAULT_FONT = 'Georgia';
+  var DOCX_DEFAULT_PT = 12;
+  var HEADING_SCALE = { 1: 1.67, 2: 1.33, 3: 1.17, 4: 1.08 };
+
+  function halfPoints(pt) {
+    var n = Math.round(Number(pt) * 2);
+    if (!isFinite(n) || n < 8) n = DOCX_DEFAULT_PT * 2;
+    return Math.min(n, 320);
+  }
+
+  /* A stack is for CSS; Word wants one family name. Generic keywords
+     ("ui-monospace", "sans-serif") are not families Word can resolve. */
+  var GENERIC_FONTS = /^(?:serif|sans-serif|monospace|cursive|fantasy|system-ui|ui-(?:serif|sans-serif|monospace|rounded))$/i;
+  function docxFamily(stack) {
+    var parts = String(stack || '').split(',');
+    for (var i = 0; i < parts.length; i++) {
+      var name = parts[i].replace(/["']/g, '').trim();
+      if (name && !GENERIC_FONTS.test(name)) return name;
+    }
+    return DOCX_DEFAULT_FONT;
+  }
+
+  function docxStyles(font, pt) {
+    var body = halfPoints(pt);
+    return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
     '<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">' +
-    '<w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Georgia" w:hAnsi="Georgia"/><w:sz w:val="24"/></w:rPr></w:rPrDefault>' +
+    '<w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="' + xmlEscape(font) + '" w:hAnsi="' + xmlEscape(font) +
+    '" w:cs="' + xmlEscape(font) + '"/><w:sz w:val="' + body + '"/><w:szCs w:val="' + body + '"/></w:rPr></w:rPrDefault>' +
     '<w:pPrDefault><w:pPr><w:spacing w:after="180" w:line="300" w:lineRule="auto"/></w:pPr></w:pPrDefault></w:docDefaults>' +
     [1, 2, 3, 4].map(function (n) {
-      var sizes = { 1: 40, 2: 32, 3: 28, 4: 26 };
+      var size = Math.round(body * HEADING_SCALE[n] / 2) * 2;
       return '<w:style w:type="paragraph" w:styleId="Heading' + n + '"><w:name w:val="heading ' + n + '"/>' +
         '<w:basedOn w:val="Normal"/><w:pPr><w:keepNext/><w:spacing w:before="320" w:after="140"/><w:outlineLvl w:val="' + (n - 1) + '"/></w:pPr>' +
-        '<w:rPr><w:b/><w:sz w:val="' + sizes[n] + '"/></w:rPr></w:style>';
+        '<w:rPr><w:b/><w:sz w:val="' + size + '"/><w:szCs w:val="' + size + '"/></w:rPr></w:style>';
     }).join('') +
     '<w:style w:type="paragraph" w:styleId="Normal"><w:name w:val="Normal"/></w:style>' +
     '<w:style w:type="paragraph" w:styleId="Quote"><w:name w:val="Quote"/><w:basedOn w:val="Normal"/>' +
@@ -351,6 +381,7 @@ window.FW = window.FW || {};
     '<w:pPr><w:ind w:left="720" w:hanging="360"/><w:spacing w:after="80"/></w:pPr></w:style>' +
     '<w:style w:type="table" w:styleId="TableGrid"><w:name w:val="Table Grid"/></w:style>' +
     '</w:styles>';
+  }
 
   var DOCX_NUMBERING = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
     '<w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">' +
@@ -363,6 +394,8 @@ window.FW = window.FW || {};
 
   function toDocx(html, meta) {
     meta = meta || {};
+    var font = meta.docxFont || (meta.fontStack ? docxFamily(meta.fontStack) : DOCX_DEFAULT_FONT);
+    var pt = meta.docxSize || DOCX_DEFAULT_PT;
     var body = htmlToDocxBody(html);
     var document_xml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
       '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">' +
@@ -408,7 +441,7 @@ window.FW = window.FW || {};
       { name: 'docProps/core.xml', data: core },
       { name: 'word/document.xml', data: document_xml },
       { name: 'word/_rels/document.xml.rels', data: docRels },
-      { name: 'word/styles.xml', data: DOCX_STYLES },
+      { name: 'word/styles.xml', data: docxStyles(font, pt) },
       { name: 'word/numbering.xml', data: DOCX_NUMBERING }
     ]);
   }
@@ -456,6 +489,7 @@ window.FW = window.FW || {};
   FW.exporter = {
     zip: zip, htmlToText: htmlToText, htmlToMarkdown: htmlToMarkdown,
     standaloneHtml: standaloneHtml, toDocx: toDocx, printPdf: printPdf,
-    mailto: mailto, emailHtml: emailHtml, crc32: crc32
+    mailto: mailto, emailHtml: emailHtml, crc32: crc32,
+    docxFamily: docxFamily, DOCX_DEFAULT_FONT: DOCX_DEFAULT_FONT, DOCX_DEFAULT_PT: DOCX_DEFAULT_PT
   };
 })(window.FW);

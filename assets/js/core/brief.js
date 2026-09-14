@@ -16,7 +16,7 @@ window.FW = window.FW || {};
     ['newsletter', /\bnewsletter\b|\bemail (?:copy|blast|sequence)\b/i],
     ['landing page', /\blanding page\b|\bsales page\b|\bhomepage copy\b/i],
     ['news report', /\bnews (?:story|report|article)\b|\bbreaking\b|\breported piece\b/i],
-    ['feature article', /\bfeature\b|\blong[- ]form\b|\bprofile piece\b/i],
+    ['feature article', /\bfeature (?:article|piece|story)\b|\blong[- ]form\b|\bprofile piece\b/i],
     ['opinion / op-ed', /\bop[- ]ed\b|\bopinion piece\b|\bcolumn\b/i],
     ['academic paper', /\bresearch paper\b|\bliterature review\b|\bdissertation\b|\bthesis\b|\bessay\b/i],
     ['book chapter', /\bchapter\b|\bmanuscript\b|\bbook proposal\b/i],
@@ -35,7 +35,8 @@ window.FW = window.FW || {};
 
   var CITATION_STYLES = [
     ['APA 7', /\bapa\b/i], ['MLA 9', /\bmla\b/i], ['Chicago', /\bchicago\b|\bturabian\b/i],
-    ['Harvard', /\bharvard\b/i], ['IEEE', /\bieee\b/i], ['Vancouver', /\bvancouver\b/i], ['AP', /\bap style\b|\bassociated press\b/i]
+    ['Harvard', /\bharvard\b/i], ['IEEE', /\bieee\b/i], ['Vancouver', /\bvancouver\b/i],
+    ['AMA', /\bama\b|\bamerican medical association\b/i], ['AP', /\bap style\b|\bassociated press\b/i]
   ];
 
   var PERSONA_SIGNALS = {
@@ -71,8 +72,12 @@ window.FW = window.FW || {};
     if (range) return { min: num(range[1]), max: num(range[2]), raw: range[0] };
     var atLeast = text.match(/(?:at least|minimum(?: of)?|no fewer than|min\.?)\s*(\d[\d,]{1,7})\s*words?\b/i);
     if (atLeast) return { min: num(atLeast[1]), max: null, raw: atLeast[0] };
-    var atMost = text.match(/(?:no more than|maximum(?: of)?|under|up to|max\.?)\s*(\d[\d,]{1,7})\s*words?\b/i);
-    if (atMost) return { min: null, max: num(atMost[1]), raw: atMost[0] };
+    /* A ceiling is not a target. "No longer than 300 words" means 300 is the
+       wall, so a centred band around it would send the writer over. */
+    var atMost = text.match(/(?:no (?:more|longer|greater) than|not (?:to )?exceed(?:ing)?|at most|maximum(?: of)?|under|up to|within|max\.?)\s*(\d[\d,]{1,7})\s*words?\b/i);
+    if (atMost) return { min: null, max: num(atMost[1]), raw: atMost[0], ceiling: true };
+    var orFewer = text.match(/(\d[\d,]{1,7})\s*words?\s+or\s+(?:fewer|less)\b/i);
+    if (orFewer) return { min: null, max: num(orFewer[1]), raw: orFewer[0], ceiling: true };
     var about = text.match(/(?:approx(?:imately)?\.?|around|about|roughly|~)\s*(\d[\d,]{1,7})\s*words?\b/i);
     if (about) { var n = num(about[1]); return { min: Math.round(n * 0.9), max: Math.round(n * 1.1), raw: about[0] }; }
     var exact = text.match(/(\d[\d,]{2,7})\s*(?:\+)?\s*words?\b/i);
@@ -125,9 +130,20 @@ window.FW = window.FW || {};
   }
 
   /* ---- audience ---- */
+  /* "speaking directly to the reader" is a tone note, not an audience, and the
+     words that follow it are the next bullet. Anything that reads like another
+     instruction is not a description of a person. */
+  function plausibleAudience(s) {
+    s = String(s).replace(/^[-*•·▪◦]\s*/, '').trim();
+    if (s.length < 3) return null;
+    if (/^(?:content|each (?:piece|section)|the tone|please|these tasks|it|this)\b/i.test(s)) return null;
+    if (!/[a-z]{3}/i.test(s)) return null;
+    return s.replace(/\.$/, '');
+  }
+
   function findAudience(text) {
-    var m = text.match(/(?:target )?(?:audience|readers?|reader persona|written for|aimed at|for an audience of)\s*(?:is|are|:|-)?\s*([^\n.;]{3,90})/i);
-    if (m) return m[1].trim().replace(/\.$/, '');
+    var m = text.match(/(?:target audience|audience|readership|reader persona|written for|aimed at|for an audience of)\s*(?:is|are|:|-)?\s*([^\n.;]{3,90})/i);
+    if (m) { var a = plausibleAudience(m[1]); if (a) return a; }
     var m2 = text.match(/\bfor\s+((?:small[- ]business owners|marketers|developers|investors|students|parents|beginners|executives|clinicians|teachers|founders|freelancers|homeowners|retail investors)[^\n.;]{0,40})/i);
     return m2 ? m2[1].trim() : null;
   }
@@ -171,14 +187,37 @@ window.FW = window.FW || {};
     return lines;
   }
 
+  /* "No longer than 300 words" is a measurement, not a ban. Filing it under
+     prohibitions buries the real prohibitions and reads as nonsense. */
+  var LIMIT_RE = /\bno (?:more|longer|fewer|less|greater) than\s+(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten)\b|\bnot (?:to )?exceed\b|\bmaximum of\b|\bat most\b|\bup to\s+\d/i;
+
+  /* "Citations do not count toward the word count" tells the writer what is
+     exempt. It reads as a prohibition to a regex and as nonsense to a human. */
+  var NOT_A_RULE_RE = /\bdo(?:es)? not count\b|\bare not (?:included|counted)\b|\bdo not apply\b/i;
+
   function findInstructions(text) {
     var required = [], forbidden = [];
+
+    function file(t, bullet) {
+      t = t.trim();
+      if (t.length < 4) return;
+      if (/^(?:tone|audience|word count|keywords?|deadline|due|format|title|client|budget|rate|deliverable)s?\s*[:\-]/i.test(t)) return;
+      if (NOT_A_RULE_RE.test(t)) { required.push(t); return; }
+      if (FORBID_RE.test(t) && !LIMIT_RE.test(t)) { forbidden.push(t); return; }
+      if (bullet || REQUIRE_RE.test(t)) required.push(t);
+    }
+
     splitInstructions(text).forEach(function (line) {
       var t = line.text.trim();
-      if (t.length < 4 || t.length > 300) return;
-      if (/^(?:tone|audience|word count|keywords?|deadline|due|format|title|client|budget|rate|deliverable)s?\s*[:\-]/i.test(t)) return;
-      if (FORBID_RE.test(t)) { forbidden.push(t); return; }
-      if (line.bullet || REQUIRE_RE.test(t)) required.push(t);
+      /* The longest bullet is usually the one carrying the citation rules or
+         the submission format. Splitting beats discarding. */
+      if (t.length > 300) {
+        U.splitSentences(t).forEach(function (sentence) {
+          if (sentence.trim().length <= 300) file(sentence, line.bullet);
+        });
+        return;
+      }
+      file(t, line.bullet);
     });
     return { required: U.unique(required).slice(0, 40), forbidden: U.unique(forbidden).slice(0, 25) };
   }
@@ -232,8 +271,12 @@ window.FW = window.FW || {};
     if (/\bquotes?\b|\binterview\b|\bexpert (?:opinion|comment)\b/i.test(text)) s.quotes = true;
     var links = text.match(/(\d+)\s*(?:internal|external|outbound|authoritative)?\s*links?\b/i);
     if (links) s.links = num(links[1]);
-    var sources = text.match(/(\d+)\s*(?:credible |reputable |peer[- ]reviewed |primary )?(?:sources?|references?|citations?)\b/i);
+    /* "at least 2 APA or AMA-style citations" puts three words between the
+       number and the noun, so allow a short adjective run. */
+    var sources = text.match(/(\d+)\s*(?:[\w.–-]+\s+){0,4}?(?:sources?|references?|citations?)\b/i);
     if (sources) s.sources = num(sources[1]);
+    var dims = text.match(/(\d{2,4})\s*[x×]\s*(\d{2,4})\s*(?:px|pixels)?\b/i);
+    if (dims) s.imageSize = dims[1] + ' × ' + dims[2] + ' px';
     return s;
   }
 
@@ -263,6 +306,40 @@ window.FW = window.FW || {};
     return null;
   }
 
+  /* SEO briefs state a density band and then check it. "1-2%" and "around 2%"
+     both mean the same thing to a human and nothing at all to a word counter. */
+  function findKeywordDensity(text) {
+    var band = text.match(/(\d(?:\.\d)?)\s*(?:-|–|—|to)\s*(\d(?:\.\d)?)\s*%\s*(?:keyword )?densit|densit\w*\s*(?:of|:)?\s*(\d(?:\.\d)?)\s*(?:-|–|—|to)\s*(\d(?:\.\d)?)\s*%/i);
+    if (band) {
+      var lo = parseFloat(band[1] || band[3]), hi = parseFloat(band[2] || band[4]);
+      if (lo > 0 && hi >= lo && hi <= 20) return { min: lo, max: hi };
+    }
+    var single = text.match(/densit\w*\s*(?:of|:)?\s*(?:around |about |approximately |roughly )?(\d(?:\.\d)?)\s*%/i) ||
+      text.match(/(\d(?:\.\d)?)\s*%\s*(?:keyword )?densit/i);
+    if (single) {
+      var n = parseFloat(single[1]);
+      if (n > 0 && n <= 20) return { min: Math.max(0.1, n - 0.5), max: n + 0.5 };
+    }
+    return null;
+  }
+
+  /* Portals reject files on the typeface and the extension before anyone reads
+     a word, so these three details are worth pulling out of the prose and
+     handing straight to the exporter. */
+  function findSubmission(text) {
+    var out = {};
+    var family = text.match(/font[\s-]*family\s*[:\-]?\s*([A-Za-z][A-Za-z0-9 ]{1,24}?)(?=[,.;\n]|$)/i) ||
+      text.match(/\bin\s+(Calibri|Arial|Helvetica|Times New Roman|Georgia|Garamond|Verdana|Cambria|Book Antiqua|Courier New)\b/i) ||
+      text.match(/\b(Calibri|Arial|Times New Roman|Georgia|Verdana|Cambria|Courier New)\b(?=[\s,]*(?:font|\d{1,2}\s*(?:pt|point)))/i);
+    if (family) out.fontFamily = family[1].trim();
+    var size = text.match(/font\s*size\s*[:\-]?\s*(\d{1,2})\b/i) || text.match(/\b(\d{1,2})\s*(?:pt|point)\b/i);
+    if (size) { var n = num(size[1]); if (n >= 6 && n <= 36) out.fontSize = n; }
+    var file = text.match(/\.(docx|doc|pdf|rtf|odt|md|txt)\b/i);
+    if (file) out.fileFormat = '.' + file[1].toLowerCase();
+    else if (/\bgoogle doc(?:ument)?s?\b/i.test(text)) out.fileFormat = 'Google Doc';
+    return (out.fontFamily || out.fontSize || out.fileFormat) ? out : null;
+  }
+
   function findFormat(text) {
     for (var i = 0; i < FORMATS.length; i++) if (FORMATS[i][1].test(text)) return FORMATS[i][0];
     return null;
@@ -273,6 +350,10 @@ window.FW = window.FW || {};
   function cleanTopic(s) {
     return String(s).trim()
       .replace(/^["'“”]|["'“”.]$/g, '')
+      /* Portal titles arrive as "Task #462-B — (300 words) How Salesforce…".
+         The scaffolding is for the portal; the templates want the subject. */
+      .replace(/^task\s*#?\s*[\w-]+\s*[–—:.-]?\s*/i, '')
+      .replace(/^\(\s*\d[\d,]*\s*words?\s*\)\s*[–—:.-]?\s*/i, '')
       .replace(/^(?:whether(?: or not)?|if)\s+/i, '')
       .trim();
   }
@@ -280,7 +361,7 @@ window.FW = window.FW || {};
   function findTopic(text, title) {
     var m = text.match(/(?:topic|subject|about|title|headline|working title|assignment)\s*[:\-]\s*([^\n]{3,120})/i);
     if (m) return cleanTopic(m[1]);
-    if (title && title !== 'Untitled assignment') return title;
+    if (title && title !== 'Untitled assignment') return cleanTopic(title);
     var first = U.splitSentences(String(text || '').trim())[0];
     return first ? first.slice(0, 120) : '';
   }
@@ -319,6 +400,12 @@ window.FW = window.FW || {};
       readingLevel: findReadingLevel(normalized),
       banned: findBannedTerms(normalized),
       structure: structure,
+      keywordDensity: findKeywordDensity(normalized),
+      /* Most academic-ish briefs exempt the reference list from the count, and a
+         writer who trims real copy to make room for it has lost words for free. */
+      countExcludesCitations: /(?:citations?|references?|sources?|bibliograph\w*)[^.\n]{0,60}?(?:do|does|are|is)\s*n[o']t\s*(?:count|included|included in)/i.test(normalized) ||
+        /(?:not count(?:ed)? toward|excluded from)[^.\n]{0,40}word count/i.test(normalized),
+      submission: findSubmission(normalized),
       suggestedPersonas: suggestions
     };
 
@@ -335,10 +422,12 @@ window.FW = window.FW || {};
             : ('No more than ' + wc.max.toLocaleString() + ' words'),
         'Found in the brief as “' + wc.raw + '”.');
     }
+    var density = findKeywordDensity(normalized);
     keywords.forEach(function (k, i) {
       check('kw-' + i, 'keyword', 'Use the keyword “' + k.term + '”',
-        k.primary ? 'Primary keyword — put it in the title, the first paragraph and at least one subheading.'
-          : 'Secondary keyword — work it in naturally at least once.',
+        density ? 'Target density ' + density.min + '–' + density.max + '%.'
+          : k.primary ? 'Primary keyword — put it in the title, the first paragraph and at least one subheading.'
+            : 'Secondary keyword — work it in naturally at least once.',
         k.primary ? 'must' : 'should');
     });
     meta.banned.forEach(function (b, i) {
@@ -354,11 +443,19 @@ window.FW = window.FW || {};
     if (structure.titleOptions) check('titles', 'deliverable', 'Supply ' + structure.titleOptions + ' headline options', '');
     if (structure.table) check('table', 'structure', 'Include a table', '');
     if (structure.bullets) check('bullets', 'structure', 'Include bulleted lists', '');
-    if (structure.images) check('images', 'deliverable', 'Supply or specify images', 'Use the royalty-free finder and log the licence.');
+    if (structure.images) check('images', 'deliverable', 'Supply or specify images',
+      (structure.imageSize ? 'Feature image ' + structure.imageSize + '. ' : '') + 'Use the royalty-free finder and log the licence.');
     if (structure.quotes) check('quotes', 'structure', 'Include quotes or expert comment', '');
     if (structure.links) check('links', 'structure', 'Include at least ' + structure.links + ' links', '');
     if (structure.sources) check('sources', 'structure', 'Cite at least ' + structure.sources + ' sources', '');
     if (meta.citationStyle) check('citestyle', 'citation', 'Use ' + meta.citationStyle + ' citation style', 'Set the citation generator to match.');
+    if (meta.submission) {
+      var sub = [];
+      if (meta.submission.fileFormat) sub.push('Submit as ' + meta.submission.fileFormat);
+      if (meta.submission.fontFamily) sub.push(meta.submission.fontFamily);
+      if (meta.submission.fontSize) sub.push(meta.submission.fontSize + 'pt');
+      check('submission', 'deliverable', sub.join(' · '), 'The export tab is pre-set to match.');
+    }
     if (meta.pov) check('pov', 'voice', 'Write in ' + meta.pov, '');
     if (meta.tone.length) check('tone', 'voice', 'Tone: ' + meta.tone.join(', '), '');
     instructions.required.forEach(function (r, i) {

@@ -68,6 +68,9 @@ window.FW = window.FW || {};
   function titleCase(s) {
     var small = /^(a|an|and|as|at|but|by|for|in|nor|of|on|or|per|the|to|vs|via|with)$/i;
     return String(s || '').split(/\s+/).map(function (w, i, arr) {
+      /* "SaaS" and "B2B" are spelled that way on purpose. Lowercasing a word
+         before recapitalising its first letter turns them into "Saas" and "B2b". */
+      if (/[A-Z]/.test(w.slice(1))) return w;
       var lower = w.toLowerCase();
       if (i !== 0 && i !== arr.length - 1 && small.test(lower)) return lower;
       return lower.charAt(0).toUpperCase() + lower.slice(1);

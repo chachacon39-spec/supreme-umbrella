@@ -204,6 +204,7 @@ window.FW = window.FW || {};
     { id: 'baskerville', label: 'Baskerville', stack: 'Baskerville, "Libre Baskerville", "Times New Roman", serif', category: 'Serif', use: 'Essays and literary features.' },
     { id: 'cambria', label: 'Cambria', stack: 'Cambria, Georgia, serif', category: 'Serif', use: 'Word-compatible reports.' },
     { id: 'inter', label: 'Inter / System UI', stack: '"Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif', category: 'Sans', use: 'Web copy, UX writing, documentation.' },
+    { id: 'calibri', label: 'Calibri', stack: 'Calibri, Carlito, "Segoe UI", sans-serif', category: 'Sans', use: 'Word-native deliverables; many client portals mandate it by name.' },
     { id: 'helvetica', label: 'Helvetica / Arial', stack: 'Helvetica, Arial, sans-serif', category: 'Sans', use: 'Neutral corporate deliverables.' },
     { id: 'verdana', label: 'Verdana', stack: 'Verdana, Geneva, sans-serif', category: 'Sans', use: 'Maximum on-screen legibility.' },
     { id: 'tahoma', label: 'Tahoma', stack: 'Tahoma, Verdana, sans-serif', category: 'Sans', use: 'Dense UI-adjacent copy.' },

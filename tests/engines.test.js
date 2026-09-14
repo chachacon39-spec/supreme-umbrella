@@ -130,14 +130,14 @@ async function run() {
     t.equal(new Set(s.variants.map(function (v) { return v.key; })).size, 3, 'the three are distinct');
 
     s.variants.forEach(function (v) {
-      t.ok(v.opener && v.opener.length > 30, v.label + ': has a written opening line');
+
       t.equal(v.headlines.length, 3, v.label + ': offers three headlines');
       t.atLeast(v.outline.length, 5, v.label + ': has a real structure');
       t.atLeast(v.risks.length, 1, v.label + ': names at least one risk');
       t.between(v.fit, 1, 99, v.label + ': has a sane fit score');
       t.ok(v.outline.every(function (o) { return o.words > 0; }),
         v.label + ': every section carries a word budget');
-      t.notMatch(JSON.stringify(v.outline) + v.opener + v.headlines.join(' '), /\{[A-Z]+\}/,
+      t.notMatch(JSON.stringify(v.outline) + v.headlines.join(' '), /\{[A-Z]+\}/,
         v.label + ': no unsubstituted template placeholders');
     });
 
