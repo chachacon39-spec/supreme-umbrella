@@ -12,6 +12,7 @@ var SUITES = [
   require('./client-brief.test'),
   require('./marketing-brief.test'),
   require('./flight-schools.test'),
+  require('./local-seo.test'),
   require('./history.test'),
   require('./backup.test')
 ];

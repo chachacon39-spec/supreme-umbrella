@@ -309,19 +309,22 @@ window.FW = window.FW || {};
         'Use a typographic apostrophe (’) in published copy.', '’');
       rule('comma-that', 'punctuation', 'warning', /,\s+that\b/g,
         'A restrictive “that” clause normally takes no comma.', ' that');
-      rule('oxford', 'punctuation', 'suggestion',
-        /\w+,\s+\w+(?:\s+\w+)?\s+(and|or)\s+\w+/g,
-        function () {
-          return guide === 'ap'
+      /* "in Bozeman, MT, call ahead and name the allergen" is a place name and a
+         clause, not a series. A comma before a US state code is geographic. */
+      var PLACE_COMMA = /\b(?:AL|AK|AZ|AR|CA|CO|CT|DE|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY|DC)\b/;
+      scan(/(\w+),\s+(\w+)(?:\s+\w+)?\s+(and|or)\s+\w+/g, function (m) {
+        /* The comma sits either side of a state code — "Bozeman, MT" or
+           "MT, call ahead" — and in both cases it is geographic, not a series. */
+        if (PLACE_COMMA.test(m[1]) || PLACE_COMMA.test(m[2])) return;
+        add({
+          rule: 'oxford', type: 'punctuation', severity: 'suggestion',
+          start: m.index, end: m.index + m[0].length,
+          message: guide === 'ap'
             ? 'AP style drops the serial comma in a simple series — check this list.'
-            : 'Serial (Oxford) comma: ' + (guide === 'apa' || guide === 'chicago' ? 'required by this style guide.' : 'keep it consistent across the piece.');
-        }, null);
-
-      /* Introductory adverbial without a comma */
-      rule('intro-comma', 'punctuation', 'suggestion',
-        /(^|[.!?]\s+|\n)(However|Therefore|Moreover|Furthermore|Meanwhile|Nevertheless|Consequently|Instead|Ultimately|Finally|Similarly|Accordingly|Otherwise|In addition|For example|For instance|In fact|Of course|In short|As a result)\s+(?![,\w]*,)/g,
-        function (m) { return 'Introductory “' + m[2] + '” usually takes a comma.'; },
-        function (m) { return m[1] + m[2] + ', '; });
+            : 'Serial (Oxford) comma: ' + (guide === 'apa' || guide === 'chicago' ? 'required by this style guide.' : 'keep it consistent across the piece.'),
+          fix: null
+        });
+      });
 
       /* Question phrased as a statement */
       sentences.forEach(function (s) {
@@ -414,9 +417,11 @@ window.FW = window.FW || {};
         }
       }
 
-      /* Sentence-opener overuse across the whole piece */
+      /* Sentence-opener overuse across the whole piece. Subheads in a breakdown
+         share a pattern on purpose, so only prose counts here — same as the
+         consecutive-opener rule above. */
       var openerCounts = {};
-      sentences.forEach(function (s) {
+      prose.forEach(function (s) {
         var w = firstWord(s.text);
         if (w && w.length > 2) (openerCounts[w] = openerCounts[w] || []).push(s);
       });
@@ -452,7 +457,7 @@ window.FW = window.FW || {};
       repeatedWords(text, sentences, required).forEach(add);
 
       /* Repeated phrases (3-grams) */
-      repeatedPhrases(text).forEach(add);
+      repeatedPhrases(text, required).forEach(add);
 
       /* Duplicate sentences */
       var sentMap = {};
@@ -770,7 +775,8 @@ window.FW = window.FW || {};
     return out;
   }
 
-  function repeatedPhrases(text) {
+  function repeatedPhrases(text, exempt) {
+    exempt = exempt || {};
     var out = [];
     var words = [], re = /[A-Za-z][A-Za-z'’-]*/g, m;
     while ((m = re.exec(text)) !== null) words.push({ w: m[0].toLowerCase(), start: m.index, end: m.index + m[0].length });
@@ -784,6 +790,11 @@ window.FW = window.FW || {};
     Object.keys(grams).forEach(function (key) {
       var hits = grams[key];
       if (hits.length < 2) return;
+      /* "Feature dish" on each of four restaurants repeats because the brief
+         says so. A phrase made only of words the brief requires is the
+         assignment, not padding. */
+      var content = key.split(' ').filter(function (w) { return !STOPSET[w]; });
+      if (content.length && content.every(function (w) { return exempt[w]; })) return;
       /* Report the second occurrence only — one flag per repeated phrase. */
       var h = hits[1];
       /* The key is normalised for matching — lower-cased, numbers dropped — so

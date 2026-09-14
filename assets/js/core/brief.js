@@ -108,11 +108,38 @@ window.FW = window.FW || {};
     return null;
   }
 
+  /* A comma separates keywords, except when it is inside one: "allergy friendly
+     restaurants in Bozeman, MT" is a single local-SEO phrase, and splitting it
+     leaves the writer chasing a keyword called "MT". */
+  var US_STATES = ('AL AK AZ AR CA CO CT DE FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND ' +
+    'OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY DC ' +
+    'Alabama Alaska Arizona Arkansas California Colorado Connecticut Delaware Florida Georgia Hawaii Idaho Illinois ' +
+    'Indiana Iowa Kansas Kentucky Louisiana Maine Maryland Massachusetts Michigan Minnesota Mississippi Missouri ' +
+    'Montana Nebraska Nevada Ohio Oklahoma Oregon Pennsylvania Tennessee Texas Utah Vermont Virginia Washington ' +
+    'Wisconsin Wyoming').split(/\s+/);
+  var STATE_SET = {};
+  US_STATES.forEach(function (st) { STATE_SET[st.toLowerCase()] = true; });
+
+  function rejoinPlaceNames(parts) {
+    var out = [];
+    parts.forEach(function (part) {
+      var trimmed = String(part).trim();
+      var isState = STATE_SET[trimmed.toLowerCase()] ||
+        /^(?:U\.?S\.?A?|UK|Canada)$/i.test(trimmed);
+      if (out.length && trimmed && isState) {
+        out[out.length - 1] = out[out.length - 1].trim() + ', ' + trimmed;
+        return;
+      }
+      out.push(part);
+    });
+    return out;
+  }
+
   /* ---- keywords ---- */
   function findKeywords(text) {
     var out = [];
     matchAll(/(?:primary |target |focus |main )?keywords?\s*[:\-]\s*([^\n]+)/gi, text).forEach(function (m) {
-      m[1].split(/[,;|]/).forEach(function (k) {
+      rejoinPlaceNames(m[1].split(/[,;|]/)).forEach(function (k) {
         k = k.trim().replace(/^["'“”]|["'“”]$/g, '');
         if (k && k.length < 60) out.push({ term: k, primary: /primary|focus|main|target/i.test(m[0]) });
       });
@@ -368,14 +395,20 @@ window.FW = window.FW || {};
   /* "including rates, course hours and course structure/overview" — three things
      the client will look for by name. */
   function findCoveragePoints(text) {
+    var points = [];
+    /* "at least one feature dish from each restaurant" states a per-item
+       requirement without ever saying "including". */
+    matchAll(/\b(?:include|feature|name|profile)\s+at least\s+(?:one|two|three|\d+)\s+([\w\s-]{3,40}?)\s+(?:from|for|per)\s+each\b/gi, text)
+      .forEach(function (hit) { points.push(hit[1].trim()); });
+
     var m = text.match(/\bincluding\s+([^.\n]{4,140})/i);
-    if (!m) return [];
-    return U.unique(m[1].split(/\s*,\s*|\s+and\s+/i).map(function (part) {
+    if (!m) return U.unique(points).slice(0, 6);
+    return U.unique(points.concat(m[1].split(/\s*,\s*|\s+and\s+/i).map(function (part) {
       return part.replace(/^(?:a|an|the)\s+/i, '').replace(/[.;:]+$/, '').trim();
     }).filter(function (part) {
       /* Fragments like "how these incorporate drones" are clauses, not topics. */
       return part.length >= 3 && part.length <= 48 && !/^(?:how|why|what|when|where|which|that)\b/i.test(part);
-    })).slice(0, 6);
+    }))).slice(0, 6);
   }
 
   /* SEO briefs state a density band and then check it. "1-2%" and "around 2%"
