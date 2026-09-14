@@ -188,11 +188,25 @@ window.FW = window.FW || {};
     var out = [];
     matchAll(/(?:do not use|don'?t use|avoid(?: using| the words?)?|never (?:use|say)|banned(?: words?| terms?)?|blacklist(?:ed)?)\s*[:\-]?\s*([^\n.]{2,160})/gi, text)
       .forEach(function (m) {
-        m[1].split(/[,;]| or /i).forEach(function (w) {
-          w = w.replace(/["'“”]/g, '').trim()
+        var terms = [];
+        /* A quoted phrase is one term however many words it holds, so pull those
+           out before splitting the rest on commas and conjunctions. */
+        var rest = m[1].replace(/["“']([^"”']{2,60})["”']/g, function (_, quoted) {
+          terms.push(quoted);
+          return ',';
+        });
+        rest.split(/[,;]|\s+(?:and|or)\s+/i).forEach(function (w) { terms.push(w); });
+
+        terms.forEach(function (w) {
+          w = String(w).replace(/["'“”]/g, '').trim()
             .replace(/^(?:the\s+)?(?:phrase|word|term|expression|cliché|cliche)s?\s+/i, '')
             .replace(/^(?:using|saying|any(?:thing)?\s+like)\s+/i, '')
             .replace(/[.,;:]+$/, '').trim();
+          /* Pulling a quoted phrase out can leave its introducer behind
+             ("do not use the phrase X" -> "the phrase"); that is not a term. */
+          if (/^(?:the|a|an|any|some)?\s*(?:phrase|word|term|expression|cliché|cliche|language|wording)s?(?:\s+(?:like|such as))?$/i.test(w)) return;
+          if (/^(?:the|a|an|any|and|or|of|to|it|is|be|use|using)$/i.test(w)) return;
+          if (/^(?:such as|like|including|e\.?g\.?|i\.?e\.?|etc\.?)$/i.test(w)) return;
           if (w && w.split(/\s+/).length <= 5 && w.length > 1 && w.length < 40) out.push(w);
         });
       });
@@ -224,13 +238,21 @@ window.FW = window.FW || {};
   }
 
   function findReadingLevel(text) {
-    var m = text.match(/(?:reading level|grade level|readability)\s*[:\-]?\s*(?:grade\s*)?(\d{1,2})/i);
-    if (m) return num(m[1]);
-    if (/\bflesch\b/i.test(text)) {
-      var f = text.match(/flesch[^0-9]{0,20}(\d{2,3})/i);
-      if (f) return null;
+    /* Briefs phrase this every which way: "reading level: 8", "keep the reading
+       level around grade 8", "aim for an 8th-grade level", "write at a grade 9". */
+    var patterns = [
+      /(?:reading|grade|readability)\s*level\b[^.\n]{0,24}?(\d{1,2})\b/i,
+      /\b(\d{1,2})(?:st|nd|rd|th)?[-\s]grade\b/i,
+      /\bgrade\s+(\d{1,2})\b/i
+    ];
+    for (var i = 0; i < patterns.length; i++) {
+      var m = text.match(patterns[i]);
+      if (m) {
+        var level = num(m[1]);
+        if (level >= 1 && level <= 16) return level;
+      }
     }
-    if (/\bplain (?:english|language)\b|\beasy to read\b|\b8th grade\b/i.test(text)) return 8;
+    if (/\bplain (?:english|language)\b|\beasy to read\b/i.test(text)) return 8;
     return null;
   }
 

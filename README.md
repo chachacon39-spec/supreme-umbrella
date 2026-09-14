@@ -201,6 +201,32 @@ and boilerplate.
 
 ---
 
+## Tests
+
+```
+npm install        # Playwright only — the app itself still has no dependencies
+npm test           # 279 assertions, about a minute
+```
+
+Three suites, run in order of how fast they fail:
+
+| Suite | Runs in | Covers |
+|---|---|---|
+| `tests/engines.test.js` | ~0.1s, no browser | Brief parsing, the three-approach generator, the writing checker, summariser, paraphraser, originality, citations, generated artwork, utilities |
+| `tests/app.test.js` | ~20s, Chromium | The path a writer actually takes: create, analyse, drag, draft, check, fix, cite, illustrate, export — plus persistence and a 400px viewport |
+| `tests/history.test.js` | ~45s, Chromium | Version snapshots, milestone restore points, the storage budget, and behaviour when `localStorage` runs out |
+
+The suites are written against behaviour rather than implementation, and every
+assertion reports the value it actually saw, so a CI failure is diagnosable
+without reproducing it locally. `tests/harness.js` is about 90 lines; there is
+no test framework.
+
+They have teeth: reverting the snapshot throttle to its old debounce, the
+reading-level parser to its old regex, or citation insertion to `execCommand`
+each makes the relevant suite fail on the specific assertion written for it.
+
+CI runs the same `npm test` on every pull request (`.github/workflows/test.yml`).
+
 ## Architecture
 
 Plain ES5-compatible JavaScript under a single `FW` namespace, loaded as
@@ -209,6 +235,8 @@ no network requests.
 
 ```
 index.html
+package.json          Playwright dev dependency and the test scripts
+tests/                harness, engine tests, app tests, history tests
 assets/css/
   base.css            design tokens, reset, primitives, light + dark themes
   app.css             layout: board, studio, panels, print styles
