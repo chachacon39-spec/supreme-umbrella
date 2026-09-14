@@ -427,8 +427,6 @@ window.FW = window.FW || {};
         ])
       ]),
       el('div', { class: 'body' }, [
-        el('div', { class: 'tiny dim', text: 'Angle: ' + v.angle }),
-        el('div', { class: 'opener', text: v.opener }),
 
         el('details', { class: 'acc' }, [
           el('summary', {}, [el('span', { text: 'Structure' }), el('span', { class: 'badge', text: String(v.outline.length) })]),
@@ -502,16 +500,12 @@ window.FW = window.FW || {};
     lines.push(task.title.toUpperCase());
     if (task.client) lines.push('Client: ' + task.client);
     lines.push('Approach: ' + v.label + ' — ' + v.summary);
-    lines.push('Angle: ' + v.angle);
     lines.push('');
     lines.push('VOICE');
     lines.push(v.voice);
     lines.push('');
     lines.push('HEADLINE OPTIONS');
     v.headlines.forEach(function (h, i) { lines.push('  ' + (i + 1) + '. ' + h); });
-    lines.push('');
-    lines.push('OPENING');
-    lines.push(v.opener);
     lines.push('');
     lines.push('STRUCTURE');
     v.outline.forEach(function (o, i) {
@@ -535,7 +529,6 @@ window.FW = window.FW || {};
 
     function scaffold() {
       var html = ['<h1>' + U.escapeHtml(variant.headlines[0] || task.title) + '</h1>'];
-      html.push('<p>' + U.escapeHtml(variant.opener) + '</p>');
       variant.outline.forEach(function (o) {
         html.push('<h2>' + U.escapeHtml(o.text) + '</h2>');
         html.push('<p><em>' + U.escapeHtml((o.words ? '~' + o.words + ' words. ' : '') + 'Draft this section.') + '</em></p>');

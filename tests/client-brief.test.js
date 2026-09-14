@@ -124,6 +124,44 @@ async function run() {
       t.equal(instructions.forbidden.length, 0, 'numeric limits are not filed as prohibitions');
     });
 
+    /* ---------- the three approaches ---------- */
+    await t.section('the approaches it offers', async function () {
+      var variants = await page.evaluate(function (args) {
+        var task = { id: 'probe', title: args.title, brief: args.brief, personaId: 'blog', wordTarget: 0 };
+        var analysis = FW.brief.analyze(task);
+        return JSON.parse(JSON.stringify(FW.styles.generate(task, analysis).variants));
+      }, { title: TASK_TITLE, brief: CLIENT_BRIEF });
+
+      t.equal(variants.length, 3, 'three approaches are generated');
+
+      var headlines = variants.reduce(function (all, v) { return all.concat(v.headlines); }, []);
+      t.atLeast(headlines.length, 9, 'each approach suggests headlines');
+
+      /* "How to Salesforce and the SaaS Market" — a noun phrase dropped into a
+         slot that needs a verb. Those templates are gone. */
+      headlines.forEach(function (h) {
+        t.notMatch(h, /\b(?:How to|Ways to|Before You)\s+Salesforce/i, 'no verb-slot nonsense: ' + h);
+      });
+      t.notMatch(headlines.join(' | '), /Without the the/i, 'no doubled article from the obstacle list');
+      /* The audience is unstated here, so nothing may fall back to "the reader". */
+      t.notMatch(headlines.join(' | '), /Most the Reader|for the Reader/i, 'no singular-audience fallback in a plural slot');
+      t.includes(headlines.join(' | '), 'SaaS', 'acronyms survive headline casing (not "Saas")');
+
+      /* No approach may claim experience nobody had. */
+      t.notMatch(headlines.join(' | '), /I Spent \d+ Months/i, 'no invented personal history offered as a title');
+
+      variants.forEach(function (v) {
+        t.equal(v.opener, undefined, v.label + ': ships no pre-written opening line');
+        t.equal(v.angle, undefined, v.label + ': ships no randomly assigned angle');
+
+        var spent = v.outline.reduce(function (sum, o) { return sum + (o.words || 0); }, 0);
+        t.atMost(spent, 330, v.label + ': the section budget respects the 300-word ceiling (' + spent + ')');
+
+        var refSection = v.outline.filter(function (o) { return /reference|sources and further/i.test(o.text); })[0];
+        if (refSection) t.ok(!refSection.words, v.label + ': the reference list gets no share of the word budget');
+      });
+    });
+
     /* ---------- drafting against it ---------- */
     await t.section('checking the draft', async function () {
       await page.locator('.board-bar .btn-primary', { hasText: 'New assignment' }).click();

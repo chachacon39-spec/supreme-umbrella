@@ -1003,9 +1003,7 @@ window.FW = window.FW || {};
             var have = refs.editor.querySelectorAll('a[href]').length;
             out.push({ label: c.label, status: have >= need2 ? 'pass' : 'warn', detail: have + ' of ' + need2 });
           } else if (/sources/i.test(c.label)) {
-            var need3 = analysis.meta.structure.sources || 0;
-            var cites = S.state.citations.filter(function (x) { return x.taskId === currentTask.id; }).length;
-            out.push({ label: c.label, status: cites >= need3 ? 'pass' : 'warn', detail: cites + ' in the citation list' });
+            out.push({ label: c.label, status: 'manual', detail: 'Check these yourself before sending.' });
           } else if (/introduction/i.test(c.label)) {
             out.push({ label: c.label, status: words > 80 ? 'pass' : 'manual', detail: '' });
           } else if (/conclusion/i.test(c.label)) {
@@ -1030,10 +1028,10 @@ window.FW = window.FW || {};
           break;
         }
         case 'citation':
-          out.push({
-            label: c.label, status: S.state.citations.length ? 'pass' : 'manual',
-            detail: S.state.citations.length + ' citations saved'
-          });
+          /* The app cannot tell a correct citation from a plausible one, and
+             grading typed references against its own list only ever produced a
+             warning on work that was already right. State the rule, no verdict. */
+          out.push({ label: c.label, status: 'manual', detail: c.detail });
           break;
         case 'deliverable':
           out.push({ label: c.label, status: 'manual', detail: c.detail });

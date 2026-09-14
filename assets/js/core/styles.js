@@ -55,10 +55,13 @@ window.FW = window.FW || {};
   }
 
   /* Distribute the word target across outline sections. */
-  function budget(outline, total) {
+  function budget(outline, total, exemptRefs) {
     if (!total || !outline.length) return outline.map(function () { return null; });
     var weights = outline.map(function (item, i) {
       var s = String(item).toLowerCase();
+      /* When the brief exempts citations from the count, the reference list must
+         not eat part of the budget — it is not copy. */
+      if (exemptRefs && /^(?:reference list|references|sources and further reading|bibliography)/.test(s)) return 0;
       if (i === 0) return 0.7;
       if (/sources|notes|references|appendix|disclaimer|shot list|b-roll|changelog/.test(s)) return 0.4;
       if (/conclusion|close|cta|call to action|next step|recap|kicker/.test(s)) return 0.6;
@@ -66,7 +69,13 @@ window.FW = window.FW || {};
       return 1.15;
     });
     var sum = weights.reduce(function (a, b) { return a + b; }, 0);
-    return weights.map(function (w) { return Math.max(40, Math.round((w / sum) * total / 10) * 10); });
+    /* A 40-word floor over eight sections is 320 words — over a 300-word
+       ceiling before a line is written. Scale the step to the deliverable. */
+    var step = total < 600 ? 5 : 10;
+    return weights.map(function (w) {
+      if (!w) return null;
+      return Math.max(step, Math.round((w / sum) * total / step) * step);
+    });
   }
 
   /* Fold requirements the brief demands into an outline that lacks them. */
@@ -116,8 +125,19 @@ window.FW = window.FW || {};
       .map(function (x) { return x.item; });
   }
 
-  function headlineOptions(persona, tok, rnd, n) {
-    var pool = (persona.headlines || []).concat(FW.lex.HEADLINE_FORMULAS);
+  /* Two ways a template turns into nonsense: a topic dropped after "to" when the
+     topic is a noun phrase ("How to Salesforce and the SaaS Market"), and an
+     audience slot filled with the singular fallback ("Why Most the Reader Get…").
+     Briefs almost always state a noun-phrase topic, so those templates are out. */
+  var VERB_SLOT = /\b(?:to|You)\s+\{TOPIC\}/;
+
+  function headlineOptions(persona, tok, rnd, n, hasAudience) {
+    var pool = (persona.headlines || []).concat(FW.lex.HEADLINE_FORMULAS)
+      .filter(function (h) {
+        if (VERB_SLOT.test(h)) return false;
+        if (!hasAudience && (h.indexOf('{AUDIENCE}') !== -1 || h.indexOf('{BENEFIT}') !== -1)) return false;
+        return true;
+      });
     return U.pickN(pool, n || 3, rnd).map(function (h) {
       var filled = fill(h, tok);
       /* Headline case, but leave any sentence-ending punctuation structure alone. */
@@ -238,17 +258,15 @@ window.FW = window.FW || {};
       var rnd = U.seeded(seedBase + '|' + style.key + '|' + idx);
       var tok = tokens(task, analysis, rnd);
       var outline = enforceRequirements(style.outline.map(function (o) { return fill(o, tok); }), analysis);
-      var budgets = budget(outline, total);
+      var budgets = budget(outline, total, !!meta.countExcludesCitations);
       var fit = fitScore(style, persona, analysis);
 
       return {
         key: style.key,
         label: style.label,
         summary: fill(style.summary, tok),
-        angle: fill(U.pick(persona.angles, rnd), tok),
         voice: voiceFor(persona, style, analysis),
-        opener: fill(style.opener, tok),
-        headlines: headlineOptions(persona, tok, rnd, 3),
+        headlines: headlineOptions(persona, tok, rnd, 3, !!meta.audience),
         outline: outline.map(function (o, i) {
           return { text: o, words: budgets[i] };
         }),
