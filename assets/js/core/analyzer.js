@@ -127,7 +127,18 @@ window.FW = window.FW || {};
       });
     }
 
-    var sentences = indexSentences(text);
+    /* The editor knows which spans are headings; flat text does not. */
+    var headingRanges = opts.headingRanges || [];
+    function inHeading(start, end) {
+      for (var i = 0; i < headingRanges.length; i++) {
+        if (start >= headingRanges[i].start && (end == null ? start : end) <= headingRanges[i].end) return true;
+      }
+      return false;
+    }
+    var sentenceCuts = [];
+    headingRanges.forEach(function (r) { sentenceCuts.push(r.start, r.end); });
+
+    var sentences = indexSentences(text, sentenceCuts);
     var paragraphs = indexParagraphs(text);
 
     /* ================= SPELLING ================= */
@@ -303,7 +314,8 @@ window.FW = window.FW || {};
       /* Question phrased as a statement */
       sentences.forEach(function (s) {
         if (/^(who|what|when|where|why|how|is|are|do|does|did|can|could|should|would|will|have|has)\b/i.test(s.text)
-          && /\.$/.test(s.text.trim()) && s.words > 3 && !/^how to\b/i.test(s.text)) {
+          && /\.$/.test(s.text.trim()) && s.words > 3 && !/^how to\b/i.test(s.text)
+          && !inHeading(s.start, s.end)) {
           add({
             rule: 'missing-question-mark', type: 'punctuation', severity: 'warning',
             start: s.start + s.text.trim().length - 1, end: s.start + s.text.trim().length,
@@ -336,7 +348,8 @@ window.FW = window.FW || {};
         }
         /* Missing terminal punctuation */
         var trimmed = p.text.replace(/\s+$/, '');
-        if (trimmed.length > 40 && !/[.!?:"”’)\]]$/.test(trimmed) && !/^#{1,6}\s/.test(trimmed)) {
+        if (trimmed.length > 40 && !/[.!?:"”’)\]]$/.test(trimmed) && !/^#{1,6}\s/.test(trimmed)
+          && !inHeading(p.start, p.start + trimmed.length)) {
           add({
             rule: 'missing-terminal', type: 'punctuation', severity: 'warning',
             start: p.start + trimmed.length - 1, end: p.start + trimmed.length,
@@ -405,7 +418,15 @@ window.FW = window.FW || {};
       });
 
       /* Repeated content words in a window */
-      repeatedWords(text, sentences).forEach(add);
+      /* The brief orders these words repeated to a density target. Flagging them
+         as repetition sets the app against its own compliance panel. */
+      var required = {};
+      ((opts.analysis && opts.analysis.meta && opts.analysis.meta.keywords) || []).forEach(function (k) {
+        String(k.term || '').toLowerCase().split(/[^a-z0-9'’-]+/).forEach(function (w) {
+          if (w.length > 3) required[w] = true;
+        });
+      });
+      repeatedWords(text, sentences, required).forEach(add);
 
       /* Repeated phrases (3-grams) */
       repeatedPhrases(text).forEach(add);
@@ -598,16 +619,29 @@ window.FW = window.FW || {};
     return map[noun.toLowerCase()] || noun;
   }
 
-  function indexSentences(text) {
-    var out = [], pos = 0;
-    U.splitParagraphs(text).forEach(function () {});
-    var raw = U.splitSentences(text);
-    raw.forEach(function (s) {
-      var idx = text.indexOf(s, pos);
-      if (idx === -1) idx = pos;
-      out.push({ text: s, start: idx, end: idx + s.length, words: U.wordCount(s) });
-      pos = idx + s.length;
-    });
+  /* A heading carries no full stop, so without an explicit boundary the splitter
+     runs it into the paragraph below and reports one long malformed sentence. */
+  function indexSentences(text, boundaries) {
+    var cuts = [0, text.length];
+    (boundaries || []).forEach(function (b) { if (b > 0 && b < text.length) cuts.push(b); });
+    cuts = U.unique(cuts.map(Number)).sort(function (a, b) { return a - b; });
+
+    var out = [];
+    for (var i = 0; i < cuts.length - 1; i++) {
+      var from = cuts[i], to = cuts[i + 1];
+      if (to <= from) continue;
+      var segment = text.slice(from, to);
+      var pos = 0;
+      U.splitSentences(segment).forEach(function (sentence) {
+        var idx = segment.indexOf(sentence, pos);
+        if (idx === -1) idx = pos;
+        out.push({
+          text: sentence, start: from + idx, end: from + idx + sentence.length,
+          words: U.wordCount(sentence)
+        });
+        pos = idx + sentence.length;
+      });
+    }
     return out;
   }
 
@@ -630,13 +664,14 @@ window.FW = window.FW || {};
   var STOPSET = {};
   STOP.split(' ').forEach(function (w) { STOPSET[w] = true; });
 
-  function repeatedWords(text, sentences) {
+  function repeatedWords(text, sentences, exempt) {
     var out = [];
     var tokens = [];
+    exempt = exempt || {};
     var re = /[A-Za-z][A-Za-z'’-]{3,}/g, m;
     while ((m = re.exec(text)) !== null) {
       var w = m[0].toLowerCase();
-      if (STOPSET[w]) continue;
+      if (STOPSET[w] || exempt[w]) continue;
       tokens.push({ word: w, start: m.index, end: m.index + m[0].length });
     }
     var byWord = {};

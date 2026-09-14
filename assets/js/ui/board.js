@@ -358,7 +358,11 @@ window.FW = window.FW || {};
     function chip(label, cls) { if (label) chips.push(el('span', { class: 'chip ' + (cls || ''), text: label })); }
 
     chip(m.format ? U.sentenceCase(m.format) : null, 'chip-accent');
-    if (m.wordCount) chip((m.wordCount.min || '?') + '–' + (m.wordCount.max || '?') + ' words');
+    if (m.wordCount) {
+      chip(m.wordCount.min && m.wordCount.max ? m.wordCount.min + '–' + m.wordCount.max + ' words'
+        : m.wordCount.max ? 'up to ' + m.wordCount.max + ' words'
+          : m.wordCount.min + '+ words');
+    }
     if (m.deadline) chip('Due ' + (m.deadline.date ? U.formatDate(m.deadline.date) : m.deadline.note || m.deadline.raw));
     if (m.audience) chip('For ' + m.audience);
     m.tone.forEach(function (t) { chip(t); });

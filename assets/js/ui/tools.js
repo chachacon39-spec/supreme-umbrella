@@ -669,13 +669,18 @@ window.FW = window.FW || {};
 
     var task = api.getTask();
     var settings = S.state.settings;
+    var submission = (task && task.analysis && task.analysis.meta && task.analysis.meta.submission) || {};
     var meta = {
       title: task ? task.title : 'Untitled draft',
       author: '', client: task ? task.client : '',
       date: new Date().toLocaleDateString(),
       fontStack: FW.resources.font(settings.font).stack,
       size: settings.size, line: settings.line, width: settings.width,
-      lang: settings.language, showMeta: true
+      lang: settings.language, showMeta: true,
+      /* The studio font is for reading on screen. The Word file has to match
+         what the client asked for, which the brief analyser has already read. */
+      docxFont: submission.fontFamily || FW.exporter.docxFamily(FW.resources.font(settings.font).stack),
+      docxSize: submission.fontSize || FW.exporter.DOCX_DEFAULT_PT
     };
 
     function metaField(label, key, placeholder) {
@@ -695,6 +700,20 @@ window.FW = window.FW || {};
       }),
       el('span', { text: 'Include a byline block in HTML and PDF' })
     ]));
+
+    var docxFontInput = el('input', { type: 'text', value: meta.docxFont });
+    docxFontInput.addEventListener('input', function () { meta.docxFont = docxFontInput.value.trim() || 'Calibri'; });
+    var docxSizeInput = el('input', { type: 'number', value: String(meta.docxSize), min: '6', max: '36', step: '1' });
+    docxSizeInput.addEventListener('input', function () { meta.docxSize = Number(docxSizeInput.value) || FW.exporter.DOCX_DEFAULT_PT; });
+    pane.appendChild(el('div', { class: 'row' }, [
+      K.field('Word font', docxFontInput),
+      K.field('Word size (pt)', docxSizeInput)
+    ]));
+    if (submission.fontFamily || submission.fontSize || submission.fileFormat) {
+      pane.appendChild(el('div', { class: 'tiny dim', style: { marginTop: '-4px', marginBottom: '10px' } , text:
+        'From the brief: ' + [submission.fileFormat, submission.fontFamily,
+          submission.fontSize ? submission.fontSize + 'pt' : null].filter(Boolean).join(' · ') }));
+    }
 
     function filename(ext) { return U.slugify(meta.title) + '.' + ext; }
 

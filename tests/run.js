@@ -9,6 +9,7 @@ var { GREEN, RED, BOLD, OFF } = require('./harness');
 var SUITES = [
   require('./engines.test'),
   require('./app.test'),
+  require('./client-brief.test'),
   require('./history.test'),
   require('./backup.test')
 ];
@@ -42,7 +43,7 @@ async function main() {
     totalAssertions += s.total;
     totalFailed += s.failed;
     var mark = s.failed ? RED + 'FAIL' + OFF : GREEN + 'pass' + OFF;
-    console.log('  ' + mark + '  ' + s.name.padEnd(10) +
+    console.log('  ' + mark + '  ' + s.name.padEnd(14) +
       String(s.total - s.failed) + '/' + s.total + ' assertions   ' + s.seconds + 's');
   });
 
