@@ -12,6 +12,11 @@ window.FW = window.FW || {};
     applyTheme();
     buildChrome();
 
+    /* The backup nudge sits directly under the top bar, above every view. */
+    var bannerHost = el('div', { id: 'backup-banner-host' });
+    document.getElementById('app').insertBefore(bannerHost, document.getElementById('view-board'));
+    FW.backup.start(bannerHost);
+
     views.board = document.getElementById('view-board');
     views.studio = document.getElementById('view-studio');
     views.resources = document.getElementById('view-resources');
@@ -64,6 +69,7 @@ window.FW = window.FW || {};
       text: S.state.settings.theme === 'dark' ? '☀' : '☾',
       onclick: toggleTheme
     }));
+    FW.backup.mountIndicator(bar);
     bar.appendChild(el('button', {
       class: 'btn btn-sm', text: 'Help', onclick: showHelp
     }));
@@ -164,7 +170,7 @@ window.FW = window.FW || {};
 
   function showHelp() {
     var body = el('div', { class: 'stack' }, [
-      el('p', { style: { marginTop: 0 }, text: 'Quill & Ledger runs entirely in this browser. Your assignments, drafts and citations are stored on this device and never uploaded anywhere. Export a backup regularly if the work matters.' }),
+      el('p', { style: { marginTop: 0 }, text: 'Quill & Ledger runs entirely in this browser. Your assignments, drafts and citations are stored on this device and never uploaded anywhere — which also means nothing else holds a copy. The Backup button in the top bar writes the whole workspace to a single file, and the app will tell you when unbacked work is piling up.' }),
 
       el('h3', { style: { fontSize: '14px' }, text: '1. Board' }),
       el('p', { class: 'small muted', text: 'Create an assignment and paste the whole brief into it. The analyser pulls out word counts, deadlines, keywords, required sections, prohibitions and tone, then proposes three distinct ways to write the piece — each with its own voice, structure, headline options and opening line. Drag cards between columns as the work moves.' }),

@@ -30,7 +30,14 @@ window.FW = window.FW || {};
       style: true, inclusive: true, readability: true, spelling: true
     },
     autoCheck: true,
-    focusMode: false
+    focusMode: false,
+
+    /* Backup safety. Everything lives in this browser, so the app has to be
+       the thing that remembers — the writer should not have to. */
+    lastBackupAt: 0,
+    lastBackupWords: 0,
+    backupSnoozedUntil: 0,
+    backupReminders: true
   };
 
   var state = {
@@ -370,6 +377,85 @@ window.FW = window.FW || {};
     emit('view:changed', view);
   }
 
+  /* ---------- backup safety ----------
+     Nudging is based on work at risk, not just elapsed time: a writer who has
+     not touched the app in a month has nothing new to lose, and one who wrote
+     3,000 words this morning has a great deal. */
+  var BACKUP = {
+    firstBackupWords: 400,   /* never backed up: nudge once there is real work */
+    staleDays: 7,            /* backed up before: how long counts as stale */
+    staleWords: 250,         /* ...and how much new writing counts as at risk */
+    snoozeDays: 3
+  };
+
+  function totalWords() {
+    var total = 0;
+    Object.keys(state.docs).forEach(function (id) {
+      total += U.wordCount(U.stripHtml(state.docs[id].html || ''));
+    });
+    return total;
+  }
+
+  function backupStatus() {
+    var settings = state.settings;
+    var words = totalWords();
+    var wordsSince = Math.max(0, words - (settings.lastBackupWords || 0));
+    var daysSince = settings.lastBackupAt
+      ? Math.floor((Date.now() - settings.lastBackupAt) / 86400000) : null;
+
+    var status = {
+      totalWords: words,
+      wordsSince: wordsSince,
+      daysSince: daysSince,
+      lastBackupAt: settings.lastBackupAt || 0,
+      neverBackedUp: !settings.lastBackupAt,
+      tasks: state.tasks.length,
+      snoozed: Date.now() < (settings.backupSnoozedUntil || 0),
+      remindersOff: settings.backupReminders === false,
+      state: 'ok',
+      atRisk: false
+    };
+
+    if (!words) { status.state = 'empty'; return status; }
+
+    if (status.neverBackedUp) {
+      status.state = words >= BACKUP.firstBackupWords ? 'never' : 'new';
+      status.atRisk = words >= BACKUP.firstBackupWords;
+    } else if (daysSince >= BACKUP.staleDays && wordsSince >= BACKUP.staleWords) {
+      status.state = 'stale';
+      status.atRisk = true;
+    } else if (wordsSince >= BACKUP.staleWords * 4) {
+      /* A lot of new writing since the last backup, whatever the date. */
+      status.state = 'stale';
+      status.atRisk = true;
+    }
+
+    if (status.snoozed || status.remindersOff) status.atRisk = false;
+    return status;
+  }
+
+  function markBackedUp() {
+    state.settings.lastBackupAt = Date.now();
+    state.settings.lastBackupWords = totalWords();
+    state.settings.backupSnoozedUntil = 0;
+    persist();
+    emit('settings:changed', state.settings);
+    emit('backup:changed', backupStatus());
+  }
+
+  function snoozeBackupReminder(days) {
+    state.settings.backupSnoozedUntil = Date.now() + (days || BACKUP.snoozeDays) * 86400000;
+    persist();
+    emit('backup:changed', backupStatus());
+  }
+
+  function setBackupReminders(on) {
+    state.settings.backupReminders = !!on;
+    persist();
+    emit('settings:changed', state.settings);
+    emit('backup:changed', backupStatus());
+  }
+
   /* ---------- import / export of the whole workspace ---------- */
   function exportAll() {
     return {
@@ -426,6 +512,9 @@ window.FW = window.FW || {};
     addCitation: addCitation, removeCitation: removeCitation,
     addSnippet: addSnippet, removeSnippet: removeSnippet,
     setSetting: setSetting, setActiveTask: setActiveTask, setView: setView,
+    backupStatus: backupStatus, markBackedUp: markBackedUp,
+    snoozeBackupReminder: snoozeBackupReminder, setBackupReminders: setBackupReminders,
+    totalWords: totalWords, BACKUP: BACKUP,
     exportAll: exportAll, importAll: importAll, resetAll: resetAll
   };
 })(window.FW);

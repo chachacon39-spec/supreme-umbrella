@@ -139,7 +139,28 @@ machine should not judge is marked for manual sign-off rather than faked.
   ("your rhythm reads as monotonous"), passive and adverb percentages, reading
   and speaking time, and keyword density.
 
-### 8. Version history
+### 8. Backup safety
+
+Everything lives in this browser's `localStorage`. There is no server, which is
+the point — but it also means nothing else is keeping a copy, and clearing site
+data would take paid client work with it.
+
+So the app tracks it rather than leaving you to remember. A **Backup** button in
+the top bar writes the whole workspace — every assignment, draft, version
+history, citation and snippet — to a single JSON file, and shows a coloured dot
+for the current state. When unbacked work piles up, a banner says exactly what
+is at stake: *"1,020 words across 2 assignments exist only in this browser."*
+
+The nudge is driven by **work at risk, not elapsed time** — someone who hasn't
+opened the app in a month has nothing new to lose, while someone who wrote 3,000
+words this morning has a great deal. It appears when there are 400+ words and no
+backup yet, after 7 days with 250+ new words, or after a single long writing
+session. Below those thresholds it stays silent. You can snooze it for three
+days or switch it off entirely, and the button remains either way.
+
+Importing a backup restores everything and resets the clock.
+
+### 9. Version history
 
 Every draft keeps a rolling set of restore points. One is taken automatically
 after roughly 90 seconds of active writing (a throttle, not an idle timer — so
@@ -158,7 +179,7 @@ entirely: a draft that fails to save is lost work, whereas a lost restore point
 is an inconvenience. It tells you when this happens rather than failing
 silently.
 
-### 9. Typography and export
+### 10. Typography and export
 
 Seventeen typefaces across serif, sans, mono, accessible (Atkinson
 Hyperlegible, OpenDyslexic) and display, with seven deliverable presets
@@ -173,7 +194,7 @@ heading styles, lists and tables — **PDF** via the print dialog, **HTML**
 word count, reading level, keyword usage, compliance summary and sources into
 one block to paste to the client, and a full JSON workspace backup.
 
-### 10. Reference desk
+### 11. Reference desk
 
 Fourteen research libraries — academic, archival, financial filings, open data,
 business intelligence, technical, search and audience research, marketing,
@@ -205,7 +226,7 @@ and boilerplate.
 
 ```
 npm install        # Playwright only — the app itself still has no dependencies
-npm test           # 279 assertions, about a minute
+npm test           # 322 assertions, about a minute
 ```
 
 Three suites, run in order of how fast they fail:
@@ -215,6 +236,7 @@ Three suites, run in order of how fast they fail:
 | `tests/engines.test.js` | ~0.1s, no browser | Brief parsing, the three-approach generator, the writing checker, summariser, paraphraser, originality, citations, generated artwork, utilities |
 | `tests/app.test.js` | ~20s, Chromium | The path a writer actually takes: create, analyse, drag, draft, check, fix, cite, illustrate, export — plus persistence and a 400px viewport |
 | `tests/history.test.js` | ~45s, Chromium | Version snapshots, milestone restore points, the storage budget, and behaviour when `localStorage` runs out |
+| `tests/backup.test.js` | ~10s, Chromium | When the backup nudge fires and when it stays quiet, snoozing, and restoring a backup into an empty browser profile |
 
 The suites are written against behaviour rather than implementation, and every
 assertion reports the value it actually saw, so a CI failure is diagnosable
@@ -260,6 +282,7 @@ assets/js/
     export.js         ZIP writer, DOCX/OOXML, Markdown, HTML, email
   ui/
     kit.js            toasts, modals, form primitives
+    backup.js         backup status, the nudge banner, export and restore
     board.js          drag-and-drop board, task dialog, approach cards
     editor.js         contenteditable studio, highlighting, compliance panel
     tools.js          tools / citations / images / export panes
@@ -295,6 +318,10 @@ Every automated suggestion is a prompt to look again, not a verdict.
 ## Your data
 
 Assignments, drafts, version history, citations and snippets live in this
-browser's `localStorage` on this device. Clearing site data deletes them.
-**Export a JSON backup regularly** (Studio → Export → Export everything) if the
-work matters.
+browser's `localStorage` on this device. Clearing site data deletes them, and
+nothing else holds a copy.
+
+The **Backup** button in the top bar writes the lot to one JSON file, and the
+app will tell you when unbacked work is accumulating rather than leaving you to
+remember. Take it up on that — a backup restores into a completely fresh
+browser, which is tested on every run.

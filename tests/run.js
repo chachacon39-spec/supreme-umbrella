@@ -9,7 +9,8 @@ var { GREEN, RED, BOLD, OFF } = require('./harness');
 var SUITES = [
   require('./engines.test'),
   require('./app.test'),
-  require('./history.test')
+  require('./history.test'),
+  require('./backup.test')
 ];
 
 async function main() {

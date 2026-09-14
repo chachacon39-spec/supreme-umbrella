@@ -740,11 +740,7 @@ window.FW = window.FW || {};
     pane.appendChild(el('div', { class: 'flex wrap' }, [
       el('button', {
         class: 'btn btn-sm', text: 'Export everything (.json)',
-        onclick: function () {
-          U.download('quill-ledger-backup-' + new Date().toISOString().slice(0, 10) + '.json',
-            JSON.stringify(S.exportAll(), null, 2), 'application/json');
-          K.toast('Workspace exported');
-        }
+        onclick: function () { FW.backup.exportNow({ force: true }); }
       }),
       el('button', { class: 'btn btn-sm', text: 'Import backup…', onclick: importBackup })
     ]));
@@ -764,6 +760,9 @@ window.FW = window.FW || {};
             title: 'Import backup', confirmLabel: 'Replace', cancelLabel: 'Merge'
           }).then(function (replace) {
             S.importAll(data, replace ? 'replace' : 'merge');
+            /* The workspace now matches a file the writer holds, so the
+               reminder clock starts again from here. */
+            S.markBackedUp();
             K.toast('Backup imported');
           });
         } catch (e) {
@@ -864,6 +863,7 @@ window.FW = window.FW || {};
 
   FW.tools = {
     renderTools: renderTools, renderCitations: renderCitations,
-    renderImages: renderImages, renderExport: renderExport
+    renderImages: renderImages, renderExport: renderExport,
+    importBackup: importBackup
   };
 })(window.FW);
