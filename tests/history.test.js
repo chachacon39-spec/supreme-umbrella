@@ -140,21 +140,30 @@ async function run() {
       await page.waitForTimeout(1600);
       await page.locator('.pane-right .tab', { hasText: /^Checks/ }).click();
       await page.waitForTimeout(600);
-      var fixAll = page.locator('.issue .btn', { hasText: /Fix all/ }).first();
+      /* Target one known rule rather than whichever happens to be listed first:
+         the totals shift as fixes surface new issues, which made an earlier
+         version of this assertion flaky. */
+      var tehIssue = page.locator('.issue')
+        .filter({ has: page.locator('.excerpt', { hasText: /^teh$/ }) }).first();
+      t.atLeast(await tehIssue.count(), 1, 'the repeated misspelling is flagged');
+
+      var fixAll = tehIssue.locator('.btn', { hasText: /Fix all/ });
       if (await fixAll.count()) {
-        var textBefore = await page.locator('.editor').innerText();
-        var issuesBefore = await page.locator('.issue').count();
+        var label = await fixAll.innerText();
+        var expected = Number((label.match(/Fix all (\d+)/) || [])[1] || 0);
+        t.atLeast(expected, 3, 'the button offers to fix all three occurrences');
+
         await fixAll.click();
         await page.waitForTimeout(900);
 
         t.match((await history(page))[0], /before fixing \d+/, 'a bulk fix is undoable');
-        /* Whichever rule the first button belongs to, it must actually change
-           the draft and clear more than one problem. */
-        t.ok((await page.locator('.editor').innerText()) !== textBefore, 'the bulk fix changed the draft');
-        t.atMost(await page.locator('.issue').count(), issuesBefore - 2,
-          'the bulk fix cleared several problems at once');
+        t.notMatch(await page.locator('.editor').innerText(), /\bteh\b/,
+          'every occurrence of the misspelling is corrected');
+        t.equal(await page.locator('.issue')
+          .filter({ has: page.locator('.excerpt', { hasText: /^teh$/ }) }).count(), 0,
+          'and none of them are still reported');
       } else {
-        t.fail('a bulk fix is undoable', 'no "Fix all" button appeared to test');
+        t.fail('a bulk fix is undoable', 'no "Fix all" button appeared on the repeated misspelling');
       }
 
       t.equal(page.__errors.length, 0, 'no console errors: ' + page.__errors.join(' | '));

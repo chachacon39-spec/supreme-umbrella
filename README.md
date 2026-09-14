@@ -226,7 +226,7 @@ and boilerplate.
 
 ```
 npm install        # Playwright only — the app itself still has no dependencies
-npm test           # 322 assertions, about a minute
+npm test           # 324 assertions, about a minute
 ```
 
 Three suites, run in order of how fast they fail:
@@ -244,8 +244,13 @@ without reproducing it locally. `tests/harness.js` is about 90 lines; there is
 no test framework.
 
 They have teeth: reverting the snapshot throttle to its old debounce, the
-reading-level parser to its old regex, or citation insertion to `execCommand`
-each makes the relevant suite fail on the specific assertion written for it.
+reading-level parser to its old regex, citation insertion to `execCommand`, or
+the backup at-risk logic each makes the relevant suite fail on the specific
+assertion written for it.
+
+They also avoid asserting on incidental quantities. Task ids are random, so the
+scaffolded draft differs between runs — an assertion about *total* issue counts
+is unstable by construction. Assertions target text the test itself writes.
 
 CI runs the same `npm test` on every pull request (`.github/workflows/test.yml`).
 
