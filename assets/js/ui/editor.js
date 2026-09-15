@@ -443,7 +443,8 @@ window.FW = window.FW || {};
       styleGuide: S.state.settings.styleGuide,
       personaId: currentTask ? currentTask.personaId : null,
       analysis: currentTask ? currentTask.analysis : null,
-      headingRanges: tm.headings
+      headingRanges: tm.headings,
+      skipRanges: referenceRanges(tm.text)
     };
     lastResult = FW.analyzer.analyze(tm.text, opts);
     lastResult.text = tm.text;
@@ -932,6 +933,15 @@ window.FW = window.FW || {};
     return text.slice(0, m.index);
   }
 
+  /* Everything from a reference heading to the end is a bibliography. Checking
+     it for repetition, filler or passive voice reports the citation style back
+     to the writer as a writing problem. */
+  function referenceRanges(text) {
+    var m = String(text).match(REFERENCE_HEADING);
+    if (!m || m.index < text.length * 0.4) return [];
+    return [{ start: m.index, end: text.length }];
+  }
+
   function evaluate(analysis, text) {
     var out = [];
     var fullText = text;
@@ -963,9 +973,19 @@ window.FW = window.FW || {};
           if (band && words) {
             var termWords = term.trim().split(/\s+/).length;
             var pct = (n * termWords / words) * 100;
+            /* One use of a five-word phrase in a 300-word piece is 1.67%. If that
+               already breaks the cap, the target is unreachable and amber would
+               send the writer hunting for a fix that does not exist. */
+            var ceiling = analysis.meta.wordCount && analysis.meta.wordCount.max;
+            var floorPct = ceiling ? (termWords / ceiling) * 100 : 0;
+            var unreachable = floorPct > band.max;
             kwDetail += ' — ' + pct.toFixed(2) + '% of ' + band.min + '–' + band.max + '%';
             if (n === 0) kwStatus = 'fail';
-            else if (pct < band.min) { kwStatus = 'warn'; kwDetail += ' (thin)'; }
+            else if (unreachable) {
+              kwStatus = 'manual';
+              kwDetail += ' — unreachable: ' + termWords + ' words in ' + ceiling +
+                ' is ' + floorPct.toFixed(2) + '% at a single use. Raise it with the client.';
+            } else if (pct < band.min) { kwStatus = 'warn'; kwDetail += ' (thin)'; }
             else if (pct > band.max) { kwStatus = 'warn'; kwDetail += ' (stuffed)'; }
           }
           out.push({ label: c.label, status: kwStatus, detail: kwDetail });
@@ -987,7 +1007,24 @@ window.FW = window.FW || {};
           break;
         }
         case 'structure': {
-          if (/subheading/i.test(c.label)) {
+          if (/^Cover \d+ /.test(c.label)) {
+            /* A "breakdown of 5 schools" is delivered as five subheads or five
+               list items. Counting them is rough, but a piece covering four of
+               five is short, and nothing else in the app would notice. */
+            var want = (analysis.meta.items && analysis.meta.items.count) || 0;
+            var subheads = refs.editor.querySelectorAll('h2, h3').length;
+            var listItems = refs.editor.querySelectorAll('li').length;
+            var boldLeads = Array.prototype.filter.call(
+              refs.editor.querySelectorAll('p > strong:first-child'),
+              function (b) { return b.parentElement.textContent.trim() === b.textContent.trim(); }).length;
+            var found = Math.max(subheads, listItems, boldLeads);
+            out.push({
+              label: c.label,
+              status: found >= want ? 'pass' : found ? 'warn' : 'manual',
+              detail: found + ' subheading' + (found === 1 ? '' : 's') +
+                ', list items or bold leads in the draft — the brief asks for ' + want
+            });
+          } else if (/subheading/i.test(c.label)) {
             var need = analysis.meta.structure.sections || 0;
             out.push({ label: c.label, status: headings >= need ? 'pass' : 'warn', detail: headings + ' of ' + need + ' in the draft' });
           } else if (/FAQ/i.test(c.label)) {
@@ -1002,6 +1039,25 @@ window.FW = window.FW || {};
             var need2 = analysis.meta.structure.links || 0;
             var have = refs.editor.querySelectorAll('a[href]').length;
             out.push({ label: c.label, status: have >= need2 ? 'pass' : 'warn', detail: have + ' of ' + need2 });
+          } else if (/^Link (?:the keyword )?out/i.test(c.label)) {
+            var wantsKeyword = /the keyword/i.test(c.label);
+            var need4 = (analysis.meta.structure.externalLinks) || 1;
+            var terms = (analysis.meta.keywords || []).map(function (k) { return String(k.term).toLowerCase(); });
+            var outbound = Array.prototype.filter.call(
+              refs.editor.querySelectorAll('a[href]'),
+              function (a) { return /^https?:/i.test(a.getAttribute('href') || ''); });
+            var onKeyword = outbound.filter(function (a) {
+              var t = a.textContent.toLowerCase();
+              return terms.some(function (term) { return term && t.indexOf(term) !== -1; });
+            });
+            var have4 = wantsKeyword ? onKeyword.length : outbound.length;
+            out.push({
+              label: c.label, status: have4 >= need4 ? 'pass' : outbound.length ? 'warn' : 'fail',
+              detail: wantsKeyword
+                ? onKeyword.length + ' of ' + need4 + ' with the keyword as anchor text' +
+                  (outbound.length && !onKeyword.length ? ' (' + outbound.length + ' outbound link(s), none on a keyword)' : '')
+                : outbound.length + ' of ' + need4 + ' outbound links'
+            });
           } else if (/sources/i.test(c.label)) {
             out.push({ label: c.label, status: 'manual', detail: 'Check these yourself before sending.' });
           } else if (/introduction/i.test(c.label)) {
@@ -1025,6 +1081,47 @@ window.FW = window.FW || {};
                 : firstP + secondP < Math.max(3, words / 200);
             out.push({ label: c.label, status: words < 60 ? 'manual' : ok ? 'pass' : 'warn', detail: firstP + ' first-person, ' + secondP + ' second-person markers' });
           } else out.push({ label: c.label, status: 'manual', detail: c.detail });
+          break;
+        }
+        case 'coverage': {
+          /* The client will look for these words by name. "course structure/
+             overview" counts either way round, and a draft writing "course
+             structures" has met the same requirement, so count each stem with
+             its inflection in one pass instead of picking one spelling. */
+          var point = c.label.replace(/^Cover “|”$/g, '');
+
+          /* Some briefs name a topic ("rates"), others state a whole clause
+             ("a comparison to the differences in legislation prior to the 2026
+             updates"). No draft contains the second one verbatim, so searching
+             for it would report a gap that is not there. State it instead. */
+          if (point.trim().split(/\s+/).length > 3) {
+            out.push({ label: c.label, status: 'manual', detail: 'Too long to check automatically — confirm it yourself.' });
+            break;
+          }
+
+          var stems = [point].concat(point.split(/\s*\/\s*/));
+          var head = point.split(/\s+/).slice(-1)[0];
+          if (head && head.length > 3) stems.push(head);
+
+          var mentions = 0;
+          U.unique(stems).forEach(function (stem) {
+            if (!stem) return;
+            var base = stem.replace(/s$/i, '');
+            var re = new RegExp('\\b' + base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + 's?\\b', 'gi');
+            var n = (text.match(re) || []).length;
+            if (n > mentions) mentions = n;
+          });
+
+          /* When the brief asks for this on each of N items, one mention across
+             the whole piece means the other items are missing it. */
+          var perItem = analysis.meta.items && analysis.meta.items.count;
+          var coverStatus = mentions ? 'pass' : 'fail';
+          var coverDetail = mentions ? mentions + ' mention' + (mentions === 1 ? '' : 's') : 'not mentioned yet';
+          if (perItem) {
+            coverDetail += ' across ' + perItem + ' items';
+            if (mentions && mentions < perItem) { coverStatus = 'warn'; coverDetail += ' — some are missing it'; }
+          }
+          out.push({ label: c.label, status: coverStatus, detail: coverDetail });
           break;
         }
         case 'citation':

@@ -108,11 +108,38 @@ window.FW = window.FW || {};
     return null;
   }
 
+  /* A comma separates keywords, except when it is inside one: "allergy friendly
+     restaurants in Bozeman, MT" is a single local-SEO phrase, and splitting it
+     leaves the writer chasing a keyword called "MT". */
+  var US_STATES = ('AL AK AZ AR CA CO CT DE FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND ' +
+    'OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY DC ' +
+    'Alabama Alaska Arizona Arkansas California Colorado Connecticut Delaware Florida Georgia Hawaii Idaho Illinois ' +
+    'Indiana Iowa Kansas Kentucky Louisiana Maine Maryland Massachusetts Michigan Minnesota Mississippi Missouri ' +
+    'Montana Nebraska Nevada Ohio Oklahoma Oregon Pennsylvania Tennessee Texas Utah Vermont Virginia Washington ' +
+    'Wisconsin Wyoming').split(/\s+/);
+  var STATE_SET = {};
+  US_STATES.forEach(function (st) { STATE_SET[st.toLowerCase()] = true; });
+
+  function rejoinPlaceNames(parts) {
+    var out = [];
+    parts.forEach(function (part) {
+      var trimmed = String(part).trim();
+      var isState = STATE_SET[trimmed.toLowerCase()] ||
+        /^(?:U\.?S\.?A?|UK|Canada)$/i.test(trimmed);
+      if (out.length && trimmed && isState) {
+        out[out.length - 1] = out[out.length - 1].trim() + ', ' + trimmed;
+        return;
+      }
+      out.push(part);
+    });
+    return out;
+  }
+
   /* ---- keywords ---- */
   function findKeywords(text) {
     var out = [];
     matchAll(/(?:primary |target |focus |main )?keywords?\s*[:\-]\s*([^\n]+)/gi, text).forEach(function (m) {
-      m[1].split(/[,;|]/).forEach(function (k) {
+      rejoinPlaceNames(m[1].split(/[,;|]/)).forEach(function (k) {
         k = k.trim().replace(/^["'“”]|["'“”]$/g, '');
         if (k && k.length < 60) out.push({ term: k, primary: /primary|focus|main|target/i.test(m[0]) });
       });
@@ -157,7 +184,12 @@ window.FW = window.FW || {};
       if (!found.length) found.push(explicit[1].trim().toLowerCase());
     }
     if (!found.length) {
-      TONES.forEach(function (t) { if (new RegExp('\\b' + t + '\\b', 'i').test(text)) found.push(t); });
+      /* A tone word attached to a noun like "website" or "source" is describing
+         something else — "an authoritative website" is not a house style. */
+      var NOT_A_TONE = '(?!\\s+(?:website|site|sites|source|sources|domain|domains|article|articles|link|links|publication|publications|figure|figures))';
+      TONES.forEach(function (t) {
+        if (new RegExp('\\b' + t + '\\b' + NOT_A_TONE, 'i').test(text)) found.push(t);
+      });
     }
     return U.unique(found).slice(0, 5);
   }
@@ -271,6 +303,23 @@ window.FW = window.FW || {};
     if (/\bquotes?\b|\binterview\b|\bexpert (?:opinion|comment)\b/i.test(text)) s.quotes = true;
     var links = text.match(/(\d+)\s*(?:internal|external|outbound|authoritative)?\s*links?\b/i);
     if (links) s.links = num(links[1]);
+
+    /* "The keyword should link to an outside relevant article on an authoritative
+       website at least once" — a requirement with no number in it, phrased as a
+       verb, which a pattern looking for "N links" cannot see. */
+    var linkOut = text.match(/\blinks?\s+(?:out\s+)?to\b[^.\n]{0,100}?\b(?:outside|external|authoritative|reputable|third[- ]party|high[- ]authority)\b/i) ||
+      text.match(/\b(?:outbound|external)\s+links?\b/i);
+    if (linkOut) {
+      var howMany = text.match(/\bat least\s+(once|twice|\d+)\b/i);
+      var n = 1;
+      if (howMany) {
+        var word = howMany[1].toLowerCase();
+        n = word === 'once' ? 1 : word === 'twice' ? 2 : num(word);
+      }
+      s.externalLinks = Math.max(1, n);
+      /* The rule is about the keyword itself carrying the link, not any link. */
+      s.keywordLinks = /\bkeywords?\b[^.\n]{0,40}?\blinks?\b/i.test(text);
+    }
     /* "at least 2 APA or AMA-style citations" puts three words between the
        number and the noun, so allow a short adjective run. */
     var sources = text.match(/(\d+)\s*(?:[\w.–-]+\s+){0,4}?(?:sources?|references?|citations?)\b/i);
@@ -304,6 +353,70 @@ window.FW = window.FW || {};
       if (CITATION_STYLES[i][1].test(text)) return CITATION_STYLES[i][0];
     }
     return null;
+  }
+
+  var NUMBER_WORDS = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 };
+  function numWord(s) {
+    s = String(s).toLowerCase();
+    return NUMBER_WORDS[s] !== undefined ? NUMBER_WORDS[s] : num(s);
+  }
+
+  /* Nearly every brief on a content portal has the same shape: "a breakdown of
+     the 5 top-rated flight schools, including rates, course hours and course
+     structure". The count and the per-item coverage are the whole assignment,
+     and a piece that covers four of five is short however well it is written. */
+  /* The count refers to the things being written about. "At least 2 APA-style
+     citations" is a rule about the apparatus, not the subject matter. */
+  var NOT_SUBJECT = /\b(?:citations?|references?|sources?|words?|images?|photos?|links?|lines?|paragraphs?|subheadings?|headings?|characters?|pages?|days?|formats?)\b/i;
+
+  function findItemCount(text) {
+    var patterns = [
+      /\b(?:breakdown|rundown|description|overview|roundup|comparison|list)\s+(?:and breakdown\s+)?of\s+(?:the\s+)?(\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten)\b\s*([\w\s/'-]{0,70}?)(?=[,.]|\s+(?:in|for|that|which|from|with|to)\b|$)/gi,
+      /\b(?:discuss(?:es|ing)?|cover(?:s|ing)?|compar(?:e|es|ing)|includ(?:e|es|ing)|featur(?:e|es|ing)|profil(?:e|es|ing))\s+(?:at least\s+)?(\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten)\s+((?:other\s+)?[\w\s/'-]{2,70}?)(?=[,.]|\s+(?:in|for|that|which|from|with|or|to)\b|$)/gi,
+      /\btop[- ](?:rated\s+)?(\d{1,2})\b\s*([\w\s/'-]{0,70}?)(?=[,.]|\s+(?:in|for|that|which)\b|$)/gi,
+      /\bat least\s+(\d{1,2}|two|three|four|five|six|seven|eight|nine|ten)\s+([\w\s/'-]{2,70}?)(?=[,.]|\s+(?:to|in|for|that|which|from|with)\b|$)/gi
+    ];
+    for (var i = 0; i < patterns.length; i++) {
+      var candidates = matchAll(patterns[i], text);
+      for (var j = 0; j < candidates.length; j++) {
+        var m = candidates[j];
+        var n = numWord(m[1]);
+        if (!(n >= 2 && n <= 20)) continue;
+        var noun = String(m[2] || '').replace(/\s+/g, ' ').trim()
+          .replace(/^(?:top[- ]rated|other|new|different)\s+/i, '');
+        if (!noun) continue;
+        /* The disqualifying word can sit just past the capture: "2 APA or
+           AMA-style citations" stops the noun at "APA". Read on a little. */
+        var context = text.slice(m.index, m.index + m[0].length + 40);
+        if (NOT_SUBJECT.test(noun) || NOT_SUBJECT.test(context)) continue;
+        return { count: n, noun: noun };
+      }
+    }
+    return null;
+  }
+
+  /* "including rates, course hours and course structure/overview" — three things
+     the client will look for by name. */
+  function findCoveragePoints(text) {
+    var points = [];
+    /* "at least one feature dish from each restaurant" states a per-item
+       requirement without ever saying "including". */
+    matchAll(/\b(?:include|feature|name|profile)\s+at least\s+(?:one|two|three|\d+)\s+([\w\s-]{3,40}?)\s+(?:from|for|per)\s+each\b/gi, text)
+      .forEach(function (hit) { points.push(hit[1].trim()); });
+
+    var m = text.match(/\bincluding\s+([^.\n]{4,160})/i);
+    if (!m) return U.unique(points).slice(0, 6);
+    return U.unique(points.concat(m[1].split(/\s*,\s*|\s+as well as\s+|\s+and\s+/i).map(function (part) {
+      return part
+        .replace(/^(?:a|an|the)\s+/i, '')
+        /* "how these incorporate drones" is a requirement written as a clause.
+           Strip the interrogative rather than discarding the requirement. */
+        .replace(/^(?:how|why|what|when|where|which|that)\s+(?:these|this|they|it|the\b[\w]*)?\s*/i, '')
+        .replace(/[.;:]+$/, '')
+        .trim();
+    }).filter(function (part) {
+      return part.length >= 3 && part.length <= 70;
+    }))).slice(0, 6);
   }
 
   /* SEO briefs state a density band and then check it. "1-2%" and "around 2%"
@@ -401,6 +514,8 @@ window.FW = window.FW || {};
       banned: findBannedTerms(normalized),
       structure: structure,
       keywordDensity: findKeywordDensity(normalized),
+      items: findItemCount(normalized),
+      coverage: findCoveragePoints(normalized),
       /* Most academic-ish briefs exempt the reference list from the count, and a
          writer who trims real copy to make room for it has lost words for free. */
       countExcludesCitations: /(?:citations?|references?|sources?|bibliograph\w*)[^.\n]{0,60}?(?:do|does|are|is)\s*n[o']t\s*(?:count|included|included in)/i.test(normalized) ||
@@ -443,10 +558,24 @@ window.FW = window.FW || {};
     if (structure.titleOptions) check('titles', 'deliverable', 'Supply ' + structure.titleOptions + ' headline options', '');
     if (structure.table) check('table', 'structure', 'Include a table', '');
     if (structure.bullets) check('bullets', 'structure', 'Include bulleted lists', '');
+    if (meta.items) {
+      check('items', 'structure', 'Cover ' + meta.items.count + ' ' + meta.items.noun,
+        'The brief asks for ' + meta.items.count + '. Counted from subheadings and list items.');
+    }
+    meta.coverage.forEach(function (point, i) {
+      check('cover-' + i, 'coverage', 'Cover “' + point + '”',
+        meta.items ? 'The brief asks for this on each of the ' + meta.items.count + '.' : '');
+    });
     if (structure.images) check('images', 'deliverable', 'Supply or specify images',
       (structure.imageSize ? 'Feature image ' + structure.imageSize + '. ' : '') + 'Use the royalty-free finder and log the licence.');
     if (structure.quotes) check('quotes', 'structure', 'Include quotes or expert comment', '');
     if (structure.links) check('links', 'structure', 'Include at least ' + structure.links + ' links', '');
+    if (structure.externalLinks) {
+      check('extlinks', 'structure',
+        (structure.keywordLinks ? 'Link the keyword out to an authoritative source' : 'Link out to an authoritative source') +
+          (structure.externalLinks > 1 ? ' (' + structure.externalLinks + ' times)' : ''),
+        structure.keywordLinks ? 'The anchor text has to be the keyword itself.' : '');
+    }
     if (structure.sources) check('sources', 'structure', 'Cite at least ' + structure.sources + ' sources', '');
     if (meta.citationStyle) check('citestyle', 'citation', 'Use ' + meta.citationStyle + ' citation style', 'Set the citation generator to match.');
     if (meta.submission) {
@@ -485,6 +614,21 @@ window.FW = window.FW || {};
 
   function buildGaps(meta, instructions) {
     var gaps = [];
+
+    /* A five-word keyword used once in a 300-word piece is already 1.67%. If the
+       brief caps density below that, no draft can satisfy both rules, and the
+       writer should hear it now rather than after the first amber warning. */
+    if (meta.keywordDensity && meta.wordCount && meta.wordCount.max) {
+      (meta.keywords || []).forEach(function (k) {
+        var termWords = String(k.term).trim().split(/\s+/).length;
+        var floorPct = (termWords / meta.wordCount.max) * 100;
+        if (floorPct > meta.keywordDensity.max) {
+          gaps.push('“' + k.term + '” is ' + termWords + ' words, so using it even once in ' +
+            meta.wordCount.max + ' words is ' + floorPct.toFixed(1) + '% — above the ' +
+            meta.keywordDensity.max + '% cap. The brief contradicts itself; ask which rule wins.');
+        }
+      });
+    }
     if (!meta.wordCount) gaps.push('No word count stated — confirm the target length before drafting.');
     if (!meta.deadline) gaps.push('No deadline found — get one in writing.');
     if (!meta.audience) gaps.push('Audience is unstated. Ask who the reader is; it changes everything downstream.');

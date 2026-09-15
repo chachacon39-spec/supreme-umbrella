@@ -61,9 +61,14 @@ window.FW = window.FW || {};
 
   var EXPLETIVE = /(^|[.!?]\s+|\n)\s*(There\s+(?:is|are|was|were)|It\s+(?:is|was)\s+(?:important|clear|necessary|possible|evident|worth))\b/g;
 
-  function makeScanner(text) {
-    /* Regions we never flag inside: URLs, emails, code-ish runs. */
+  function makeScanner(text, extraRanges) {
+    /* Regions we never flag inside: URLs, emails, code-ish runs, and anything
+       the caller marks as not-prose (a reference list is a bibliography, not
+       writing — its repeated author names are the format working correctly). */
     var protectedRanges = [];
+    (extraRanges || []).forEach(function (r) {
+      if (r && r.end > r.start) protectedRanges.push([r.start, r.end]);
+    });
     [/https?:\/\/[^\s<>"')]+/g, /\b[\w.+-]+@[\w-]+\.[\w.]+\b/g, /`[^`\n]+`/g, /\b\d+\.\d+\b/g]
       .forEach(function (re) {
         var m, rx = new RegExp(re.source, 'g');
@@ -86,7 +91,7 @@ window.FW = window.FW || {};
     var lang = FW.resources.language(opts.language || 'en-US');
     var guide = opts.styleGuide || 'chicago';
     var persona = opts.personaId ? FW.personas.get(opts.personaId) : null;
-    var scanner = makeScanner(text);
+    var scanner = makeScanner(text, opts.skipRanges);
 
     var issues = [];
     var seen = {};
@@ -255,11 +260,22 @@ window.FW = window.FW || {};
         'Sentence starts with a lowercase letter.',
         function (m) { return m[0].replace(m[1], m[1].toUpperCase()); });
 
-      /* Possible comma splice: comma followed by a pronoun and a finite verb. */
+      /* Possible comma splice: comma followed by a pronoun and a finite verb.
+         A sentence that opens with a subordinating conjunction has a dependent
+         first clause, so its comma is correct: "If you write your own
+         questionnaires, this is the natural home" is not a splice. */
+      var SUBORDINATOR = /^\s*(?:if|when|whenever|while|although|though|because|since|unless|until|after|before|once|whereas|as|provided|assuming|given|where|wherever)\b/i;
       sentences.forEach(function (s) {
         var re = /,\s+(he|she|it|they|we|you|i|this|that|these|those)\s+(is|are|was|were|has|have|had|will|would|can|could|should|did|does|do|makes|made|took|takes|gets|got|needs|need|means|means)\b/gi;
         var m;
         while ((m = re.exec(s.text)) !== null) {
+          /* The dependent clause need not open the sentence — "Remote ID applies:
+             if it broadcasts, it can be attributed" has one after a colon. Look
+             at the clause the comma actually closes, not at the sentence. Only
+             that comma is exempt; a later one can still be a splice. */
+          var beforeComma = s.text.slice(0, m.index);
+          var clause = beforeComma.split(/[:;—–(]/).pop();
+          if (SUBORDINATOR.test(clause.trim()) && clause.indexOf(',') === -1) continue;
           add({
             rule: 'comma-splice', type: 'grammar', severity: 'warning',
             start: s.start + m.index, end: s.start + m.index + m[0].length,
@@ -297,19 +313,22 @@ window.FW = window.FW || {};
         'Use a typographic apostrophe (’) in published copy.', '’');
       rule('comma-that', 'punctuation', 'warning', /,\s+that\b/g,
         'A restrictive “that” clause normally takes no comma.', ' that');
-      rule('oxford', 'punctuation', 'suggestion',
-        /\w+,\s+\w+(?:\s+\w+)?\s+(and|or)\s+\w+/g,
-        function () {
-          return guide === 'ap'
+      /* "in Bozeman, MT, call ahead and name the allergen" is a place name and a
+         clause, not a series. A comma before a US state code is geographic. */
+      var PLACE_COMMA = /\b(?:AL|AK|AZ|AR|CA|CO|CT|DE|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY|DC)\b/;
+      scan(/(\w+),\s+(\w+)(?:\s+\w+)?\s+(and|or)\s+\w+/g, function (m) {
+        /* The comma sits either side of a state code — "Bozeman, MT" or
+           "MT, call ahead" — and in both cases it is geographic, not a series. */
+        if (PLACE_COMMA.test(m[1]) || PLACE_COMMA.test(m[2])) return;
+        add({
+          rule: 'oxford', type: 'punctuation', severity: 'suggestion',
+          start: m.index, end: m.index + m[0].length,
+          message: guide === 'ap'
             ? 'AP style drops the serial comma in a simple series — check this list.'
-            : 'Serial (Oxford) comma: ' + (guide === 'apa' || guide === 'chicago' ? 'required by this style guide.' : 'keep it consistent across the piece.');
-        }, null);
-
-      /* Introductory adverbial without a comma */
-      rule('intro-comma', 'punctuation', 'suggestion',
-        /(^|[.!?]\s+|\n)(However|Therefore|Moreover|Furthermore|Meanwhile|Nevertheless|Consequently|Instead|Ultimately|Finally|Similarly|Accordingly|Otherwise|In addition|For example|For instance|In fact|Of course|In short|As a result)\s+(?![,\w]*,)/g,
-        function (m) { return 'Introductory “' + m[2] + '” usually takes a comma.'; },
-        function (m) { return m[1] + m[2] + ', '; });
+            : 'Serial (Oxford) comma: ' + (guide === 'apa' || guide === 'chicago' ? 'required by this style guide.' : 'keep it consistent across the piece.'),
+          fix: null
+        });
+      });
 
       /* Question phrased as a statement */
       sentences.forEach(function (s) {
@@ -386,22 +405,27 @@ window.FW = window.FW || {};
         }
       });
 
-      /* Consecutive sentences opening with the same word */
-      for (var i = 1; i < sentences.length; i++) {
-        var a = firstWord(sentences[i - 1].text), b = firstWord(sentences[i].text);
+      /* Consecutive sentences opening with the same word. A subhead naming its
+         subject and the paragraph beneath it doing the same is normal structure,
+         not a repeated opener, so headings do not count as sentences here. */
+      var prose = sentences.filter(function (s) { return !inHeading(s.start, s.end); });
+      for (var i = 1; i < prose.length; i++) {
+        var a = firstWord(prose[i - 1].text), b = firstWord(prose[i].text);
         if (a && a === b && a.length > 2) {
           add({
             rule: 'repeated-opener', type: 'structure', severity: 'warning',
-            start: sentences[i].start, end: sentences[i].start + b.length,
+            start: prose[i].start, end: prose[i].start + b.length,
             message: 'Two sentences in a row open with “' + b + '”. Vary the entry point.',
             fix: null
           });
         }
       }
 
-      /* Sentence-opener overuse across the whole piece */
+      /* Sentence-opener overuse across the whole piece. Subheads in a breakdown
+         share a pattern on purpose, so only prose counts here — same as the
+         consecutive-opener rule above. */
       var openerCounts = {};
-      sentences.forEach(function (s) {
+      prose.forEach(function (s) {
         var w = firstWord(s.text);
         if (w && w.length > 2) (openerCounts[w] = openerCounts[w] || []).push(s);
       });
@@ -421,15 +445,23 @@ window.FW = window.FW || {};
       /* The brief orders these words repeated to a density target. Flagging them
          as repetition sets the app against its own compliance panel. */
       var required = {};
-      ((opts.analysis && opts.analysis.meta && opts.analysis.meta.keywords) || []).forEach(function (k) {
-        String(k.term || '').toLowerCase().split(/[^a-z0-9'’-]+/).forEach(function (w) {
-          if (w.length > 3) required[w] = true;
+      var briefMeta = (opts.analysis && opts.analysis.meta) || {};
+      function exemptPhrase(phrase) {
+        String(phrase || '').toLowerCase().split(/[^a-z0-9'’-]+/).forEach(function (w) {
+          if (w.length <= 3) return;
+          required[w] = true;
+          /* A keyword saying "flight schools" licenses "school" too. */
+          required[/s$/.test(w) ? w.replace(/s$/, '') : w + 's'] = true;
         });
-      });
+      }
+      (briefMeta.keywords || []).forEach(function (k) { exemptPhrase(k.term); });
+      /* "Including rates, course hours and course structure" on each of five
+         schools means those words appear five times by instruction. */
+      (briefMeta.coverage || []).forEach(exemptPhrase);
       repeatedWords(text, sentences, required).forEach(add);
 
       /* Repeated phrases (3-grams) */
-      repeatedPhrases(text).forEach(add);
+      repeatedPhrases(text, required).forEach(add);
 
       /* Duplicate sentences */
       var sentMap = {};
@@ -497,7 +529,12 @@ window.FW = window.FW || {};
       Object.keys(L.TRANSITIONS).forEach(function (k) { transitionWords = transitionWords.concat(L.TRANSITIONS[k]); });
       var transRe = new RegExp('\\b(' + transitionWords.map(escapeRe).join('|') + ')\\b', 'i');
       var runLength = 0;
+      /* "A breakdown of the 5 top-rated schools" is a list by instruction. Warning
+         that it reads as one is the checker arguing with the brief. */
+      var enumerated = (opts.analysis && opts.analysis.meta && opts.analysis.meta.items &&
+        opts.analysis.meta.items.count >= 3);
       paragraphs.forEach(function (p, idx) {
+        if (enumerated) return;
         if (transRe.test(p.text)) runLength = 0; else runLength++;
         if (runLength === 4) {
           add({
@@ -526,10 +563,25 @@ window.FW = window.FW || {};
           'Cliché — “' + c + '”. Replace it with something specific to this piece.', null);
       });
 
+      /* Some fillers are only fillers on their own. "Rather than a demo set" is a
+         comparison and "just in case" is a set phrase; deleting the word there
+         breaks the sentence the suggestion offers to fix. */
+      var FILLER_EXCEPTIONS = {
+        rather: /\brather\s+than\b/i,
+        just: /\bjust\s+in\s+case\b|\bjust\s+as\b/i,
+        quite: /\bquite\s+(?:a|the)\b/i
+      };
       L.FILLERS.forEach(function (f, idx) {
-        rule('filler-' + idx, 'style', 'suggestion',
-          new RegExp('\\b' + escapeRe(f) + '\\b', 'gi'),
-          'Filler — “' + f + '” usually weakens the sentence. Cut it and see if anything is lost.', '');
+        var exception = FILLER_EXCEPTIONS[String(f).toLowerCase()];
+        scan(new RegExp('\\b' + escapeRe(f) + '\\b', 'gi'), function (m) {
+          if (exception && exception.test(text.slice(m.index, m.index + 24))) return;
+          add({
+            rule: 'filler-' + idx, type: 'style', severity: 'suggestion',
+            start: m.index, end: m.index + m[0].length,
+            message: 'Filler — “' + f + '” usually weakens the sentence. Cut it and see if anything is lost.',
+            fix: ''
+          });
+        });
       });
 
       L.WEASEL.forEach(function (w, idx) {
@@ -664,6 +716,18 @@ window.FW = window.FW || {};
   var STOPSET = {};
   STOP.split(' ').forEach(function (w) { STOPSET[w] = true; });
 
+  /* The neighbour has to be a real name, not the capital that starts a
+     sentence: "The Academy" is one word of a name, "This Course" is not. */
+  function nextToProperNoun(text, m) {
+    var before = text.slice(Math.max(0, m.index - 40), m.index);
+    var after = text.slice(m.index + m[0].length, m.index + m[0].length + 40);
+    var prev = before.match(/([A-Za-z][A-Za-z'’-]+)\s+$/);
+    var next = after.match(/^\s+([A-Z][A-Za-z'’-]+)/);
+    if (prev && /^[A-Z]/.test(prev[1]) && !STOPSET[prev[1].toLowerCase()]) return true;
+    if (next && !STOPSET[next[1].toLowerCase()]) return true;
+    return false;
+  }
+
   function repeatedWords(text, sentences, exempt) {
     var out = [];
     var tokens = [];
@@ -672,6 +736,14 @@ window.FW = window.FW || {};
     while ((m = re.exec(text)) !== null) {
       var w = m[0].toLowerCase();
       if (STOPSET[w] || exempt[w]) continue;
+      /* "Part 141", "Section 5", "Boeing 737" — a capitalised word carrying a
+         number is a designation. Telling a writer to vary it is telling them to
+         rename the regulation. */
+      if (/^[A-Z]/.test(m[0]) && /^\s+\d/.test(text.slice(m.index + m[0].length, m.index + m[0].length + 4))) continue;
+      /* A piece about five named schools says "Academy" three times because
+         three of them are called one. A capitalised word sitting next to
+         another capitalised word is part of a name, not a writer's vocabulary. */
+      if (/^[A-Z]/.test(m[0]) && nextToProperNoun(text, m)) continue;
       tokens.push({ word: w, start: m.index, end: m.index + m[0].length });
     }
     var byWord = {};
@@ -707,7 +779,8 @@ window.FW = window.FW || {};
     return out;
   }
 
-  function repeatedPhrases(text) {
+  function repeatedPhrases(text, exempt) {
+    exempt = exempt || {};
     var out = [];
     var words = [], re = /[A-Za-z][A-Za-z'’-]*/g, m;
     while ((m = re.exec(text)) !== null) words.push({ w: m[0].toLowerCase(), start: m.index, end: m.index + m[0].length });
@@ -721,12 +794,21 @@ window.FW = window.FW || {};
     Object.keys(grams).forEach(function (key) {
       var hits = grams[key];
       if (hits.length < 2) return;
+      /* "Feature dish" on each of four restaurants repeats because the brief
+         says so. A phrase made only of words the brief requires is the
+         assignment, not padding. */
+      var content = key.split(' ').filter(function (w) { return !STOPSET[w]; });
+      if (content.length && content.every(function (w) { return exempt[w]; })) return;
       /* Report the second occurrence only — one flag per repeated phrase. */
       var h = hits[1];
+      /* The key is normalised for matching — lower-cased, numbers dropped — so
+         quoting it sends the writer looking for words that are not in their
+         draft ("part course structure" for "Part 141 course structure"). */
+      var asWritten = text.slice(h.start, h.end).replace(/\s+/g, ' ');
       out.push({
         rule: 'phrase-repetition', type: 'structure', severity: 'warning',
         start: h.start, end: h.end,
-        message: 'The phrase “' + key + '” is used ' + hits.length + ' times. Repetition like this reads as padding.',
+        message: 'The phrase “' + asWritten + '” is used ' + hits.length + ' times. Repetition like this reads as padding.',
         fix: null
       });
     });
