@@ -371,6 +371,12 @@ window.FW = window.FW || {};
   var NOT_SUBJECT = /\b(?:citations?|references?|sources?|words?|images?|photos?|links?|lines?|paragraphs?|subheadings?|headings?|characters?|pages?|days?|formats?)\b/i;
 
   function findItemCount(text) {
+    /* "discusses 3 current IP (intellectual property) legal issues" — the noun
+       runs straight through a parenthetical gloss, and a character class that
+       does not include brackets stops dead at one. The aside is for the reader,
+       not for the count. */
+    text = String(text).replace(/\s*\([^)]{0,80}\)/g, '');
+
     var patterns = [
       /\b(?:breakdown|rundown|description|overview|roundup|comparison|list)\s+(?:and breakdown\s+)?of\s+(?:the\s+)?(\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten)\b\s*([\w\s/'-]{0,70}?)(?=[,.]|\s+(?:in|for|that|which|from|with|to)\b|$)/gi,
       /\b(?:discuss(?:es|ing)?|cover(?:s|ing)?|compar(?:e|es|ing)|includ(?:e|es|ing)|featur(?:e|es|ing)|profil(?:e|es|ing))\s+(?:at least\s+)?(\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten)\s+((?:other\s+)?[\w\s/'-]{2,70}?)(?=[,.]|\s+(?:in|for|that|which|from|with|or|to)\b|$)/gi,
@@ -384,7 +390,10 @@ window.FW = window.FW || {};
         var n = numWord(m[1]);
         if (!(n >= 2 && n <= 20)) continue;
         var noun = String(m[2] || '').replace(/\s+/g, ' ').trim()
-          .replace(/^(?:top[- ]rated|other|new|different)\s+/i, '');
+          .replace(/^(?:top[- ]rated|other|new|different)\s+/i, '')
+          /* "3 legal issues being discussed" — the participle describes the
+             search, not the thing to write about. */
+          .replace(/\s+(?:being|that (?:are|is)|which (?:are|is))\s+[\w-]+$/i, '');
         if (!noun) continue;
         /* The disqualifying word can sit just past the capture: "2 APA or
            AMA-style citations" stops the noun at "APA". Read on a little. */
