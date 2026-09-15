@@ -269,9 +269,13 @@ window.FW = window.FW || {};
         var re = /,\s+(he|she|it|they|we|you|i|this|that|these|those)\s+(is|are|was|were|has|have|had|will|would|can|could|should|did|does|do|makes|made|took|takes|gets|got|needs|need|means|means)\b/gi;
         var m;
         while ((m = re.exec(s.text)) !== null) {
-          /* Only the comma that closes the leading dependent clause is exempt;
-             a second comma later in the same sentence can still be a splice. */
-          if (SUBORDINATOR.test(s.text) && s.text.slice(0, m.index).indexOf(',') === -1) continue;
+          /* The dependent clause need not open the sentence — "Remote ID applies:
+             if it broadcasts, it can be attributed" has one after a colon. Look
+             at the clause the comma actually closes, not at the sentence. Only
+             that comma is exempt; a later one can still be a splice. */
+          var beforeComma = s.text.slice(0, m.index);
+          var clause = beforeComma.split(/[:;—–(]/).pop();
+          if (SUBORDINATOR.test(clause.trim()) && clause.indexOf(',') === -1) continue;
           add({
             rule: 'comma-splice', type: 'grammar', severity: 'warning',
             start: s.start + m.index, end: s.start + m.index + m[0].length,

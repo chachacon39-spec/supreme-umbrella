@@ -1089,6 +1089,16 @@ window.FW = window.FW || {};
              structures" has met the same requirement, so count each stem with
              its inflection in one pass instead of picking one spelling. */
           var point = c.label.replace(/^Cover “|”$/g, '');
+
+          /* Some briefs name a topic ("rates"), others state a whole clause
+             ("a comparison to the differences in legislation prior to the 2026
+             updates"). No draft contains the second one verbatim, so searching
+             for it would report a gap that is not there. State it instead. */
+          if (point.trim().split(/\s+/).length > 3) {
+            out.push({ label: c.label, status: 'manual', detail: 'Too long to check automatically — confirm it yourself.' });
+            break;
+          }
+
           var stems = [point].concat(point.split(/\s*\/\s*/));
           var head = point.split(/\s+/).slice(-1)[0];
           if (head && head.length > 3) stems.push(head);

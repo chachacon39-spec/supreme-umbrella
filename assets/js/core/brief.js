@@ -384,8 +384,11 @@ window.FW = window.FW || {};
         if (!(n >= 2 && n <= 20)) continue;
         var noun = String(m[2] || '').replace(/\s+/g, ' ').trim()
           .replace(/^(?:top[- ]rated|other|new|different)\s+/i, '');
-        if (NOT_SUBJECT.test(noun)) continue;
         if (!noun) continue;
+        /* The disqualifying word can sit just past the capture: "2 APA or
+           AMA-style citations" stops the noun at "APA". Read on a little. */
+        var context = text.slice(m.index, m.index + m[0].length + 40);
+        if (NOT_SUBJECT.test(noun) || NOT_SUBJECT.test(context)) continue;
         return { count: n, noun: noun };
       }
     }
@@ -401,13 +404,18 @@ window.FW = window.FW || {};
     matchAll(/\b(?:include|feature|name|profile)\s+at least\s+(?:one|two|three|\d+)\s+([\w\s-]{3,40}?)\s+(?:from|for|per)\s+each\b/gi, text)
       .forEach(function (hit) { points.push(hit[1].trim()); });
 
-    var m = text.match(/\bincluding\s+([^.\n]{4,140})/i);
+    var m = text.match(/\bincluding\s+([^.\n]{4,160})/i);
     if (!m) return U.unique(points).slice(0, 6);
-    return U.unique(points.concat(m[1].split(/\s*,\s*|\s+and\s+/i).map(function (part) {
-      return part.replace(/^(?:a|an|the)\s+/i, '').replace(/[.;:]+$/, '').trim();
+    return U.unique(points.concat(m[1].split(/\s*,\s*|\s+as well as\s+|\s+and\s+/i).map(function (part) {
+      return part
+        .replace(/^(?:a|an|the)\s+/i, '')
+        /* "how these incorporate drones" is a requirement written as a clause.
+           Strip the interrogative rather than discarding the requirement. */
+        .replace(/^(?:how|why|what|when|where|which|that)\s+(?:these|this|they|it|the\b[\w]*)?\s*/i, '')
+        .replace(/[.;:]+$/, '')
+        .trim();
     }).filter(function (part) {
-      /* Fragments like "how these incorporate drones" are clauses, not topics. */
-      return part.length >= 3 && part.length <= 48 && !/^(?:how|why|what|when|where|which|that)\b/i.test(part);
+      return part.length >= 3 && part.length <= 70;
     }))).slice(0, 6);
   }
 
