@@ -99,6 +99,11 @@ window.FW = window.FW || {};
     function add(issue) {
       if (issue.start == null || issue.end == null || issue.end <= issue.start) return;
       if (scanner.isProtected(issue.start, issue.end)) return;
+      /* Blocks are joined by newlines, so an adjacency rule can match the end of
+         one paragraph against the start of the next — "…want it to be" followed
+         by "Bracketed names…" reads as a passive that nobody wrote. Nothing the
+         reader sees as one span crosses a block boundary. */
+      if (text.slice(issue.start, issue.end).indexOf('\n') !== -1) return;
       var key = issue.rule + ':' + issue.start + ':' + issue.end;
       if (seen[key]) return;
       seen[key] = true;
@@ -180,8 +185,14 @@ window.FW = window.FW || {};
       rule('an-consonant', 'grammar', 'error', /\ban\s+([b-df-hj-np-tv-z]\w*)/gi,
         function (m) { return 'Use “a” before a consonant sound: a ' + m[1] + '.'; },
         function (m) { return 'a ' + m[1]; });
+      /* An initialism is read letter by letter, and the names of F, H, L, M, N,
+         R, S and X all open on a vowel sound — "an SBIR grant", "an FDA ruling".
+         No list of acronyms can be complete, so recognise the shape instead. */
+      var AN_INITIALISM = /^[FHLMNRSX][A-Z0-9]{1,6}$/;
       issues = issues.filter(function (i) {
-        return i.rule !== 'an-consonant' || !AN_BEFORE_CONSONANT.test(i.excerpt.replace(/^an\s+/i, ''));
+        if (i.rule !== 'an-consonant') return true;
+        var word = i.excerpt.replace(/^an\s+/i, '');
+        return !AN_BEFORE_CONSONANT.test(word) && !AN_INITIALISM.test(word);
       });
 
       rule('doubled-word', 'grammar', 'error', /\b(\w{2,})\s+\1\b/gi,
@@ -320,6 +331,9 @@ window.FW = window.FW || {};
         /* The comma sits either side of a state code — "Bozeman, MT" or
            "MT, call ahead" — and in both cases it is geographic, not a series. */
         if (PLACE_COMMA.test(m[1]) || PLACE_COMMA.test(m[2])) return;
+        /* "…your existing vendors, whether or not you buy any of it" is a
+           clause opening on a fixed phrase, not a third list item. */
+        if (/^(?:whether|either|neither|rather|sooner)$/i.test(m[2])) return;
         add({
           rule: 'oxford', type: 'punctuation', severity: 'suggestion',
           start: m.index, end: m.index + m[0].length,
@@ -411,7 +425,10 @@ window.FW = window.FW || {};
       var prose = sentences.filter(function (s) { return !inHeading(s.start, s.end); });
       for (var i = 1; i < prose.length; i++) {
         var a = firstWord(prose[i - 1].text), b = firstWord(prose[i].text);
-        if (a && a === b && a.length > 2) {
+        /* A run of parallel questions — "Does it replace a line item? Does it
+           need a migration?" — repeats its opener on purpose. */
+        var bothQuestions = /\?\s*$/.test(prose[i - 1].text.trim()) && /\?\s*$/.test(prose[i].text.trim());
+        if (a && a === b && a.length > 2 && !bothQuestions) {
           add({
             rule: 'repeated-opener', type: 'structure', severity: 'warning',
             start: prose[i].start, end: prose[i].start + b.length,
@@ -448,6 +465,13 @@ window.FW = window.FW || {};
       var briefMeta = (opts.analysis && opts.analysis.meta) || {};
       function exemptPhrase(phrase) {
         String(phrase || '').toLowerCase().split(/[^a-z0-9'’-]+/).forEach(function (w) {
+          if (!w) return;
+          /* The phrase scanner reads letter runs, so "B2B" reaches it as "b".
+             Exempt that too, or a keyword the brief orders twice comes back as
+             a repeated phrase. Short tokens are harmless here: the word-level
+             rule ignores anything under four characters anyway. */
+          var letters = w.match(/^[a-z]+/);
+          if (letters && letters[0] !== w) required[letters[0]] = true;
           if (w.length <= 3) return;
           required[w] = true;
           /* A keyword saying "flight schools" licenses "school" too. */
@@ -458,7 +482,7 @@ window.FW = window.FW || {};
       /* "Including rates, course hours and course structure" on each of five
          schools means those words appear five times by instruction. */
       (briefMeta.coverage || []).forEach(exemptPhrase);
-      repeatedWords(text, sentences, required).forEach(add);
+      repeatedWords(text, sentences, required, inHeading).forEach(add);
 
       /* Repeated phrases (3-grams) */
       repeatedPhrases(text, required).forEach(add);
@@ -728,10 +752,11 @@ window.FW = window.FW || {};
     return false;
   }
 
-  function repeatedWords(text, sentences, exempt) {
+  function repeatedWords(text, sentences, exempt, isHeading) {
     var out = [];
     var tokens = [];
     exempt = exempt || {};
+    isHeading = isHeading || function () { return false; };
     var re = /[A-Za-z][A-Za-z'’-]{3,}/g, m;
     while ((m = re.exec(text)) !== null) {
       var w = m[0].toLowerCase();
@@ -744,6 +769,10 @@ window.FW = window.FW || {};
          three of them are called one. A capitalised word sitting next to
          another capitalised word is part of a name, not a writer's vocabulary. */
       if (/^[A-Z]/.test(m[0]) && nextToProperNoun(text, m)) continue;
+      /* Subheads in a breakdown share a word by construction — "Launch one",
+         "Launch two". Labels alone are not a writer repeating themselves, so
+         only prose counts, the same as the two sentence-opener rules. */
+      if (isHeading(m.index, m.index + m[0].length)) continue;
       tokens.push({ word: w, start: m.index, end: m.index + m[0].length });
     }
     var byWord = {};

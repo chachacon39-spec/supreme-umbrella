@@ -404,6 +404,24 @@ window.FW = window.FW || {};
     matchAll(/\b(?:include|feature|name|profile)\s+at least\s+(?:one|two|three|\d+)\s+([\w\s-]{3,40}?)\s+(?:from|for|per)\s+each\b/gi, text)
       .forEach(function (hit) { points.push(hit[1].trim()); });
 
+    /* "as well as a brief comparison of each model to the Tesla Model 3" — a
+       named benchmark every item has to be measured against. The benchmark is
+       the checkable part, so make it the requirement. */
+    matchAll(/\b(?:comparison|compare[ds]?|comparing|benchmark(?:ed)?)\s+(?:of|to|against)?\s*each\s+[\w\s-]{2,30}?\s+(?:to|against|with)\s+(?:the\s+)?([\w.'’-]+(?:\s+[\w.'’-]+){0,3})/gi, text)
+      .forEach(function (hit) {
+        /* The capture can run past the end of the sentence and into the next
+           label — "Tesla Model 3. Keywords". Cut at the sentence break. */
+        var benchmark = hit[1].split(/\.\s/)[0].replace(/[.,;:]+$/, '').trim();
+        /* A benchmark is a name. "each of them to the others" is not one. */
+        if (/[A-Z]/.test(benchmark)) points.push(benchmark);
+      });
+
+    /* "covering 3 new offerings ... and how they may impact the current market"
+       — a second requirement per item, hung off the end of the sentence as a
+       clause. It is the argument the client is paying for, not a detail. */
+    matchAll(/\band how (?:they|these|it|this|the\s+\w+)\s+(?:may|might|could|will|can|would)?\s*([\w\s-]{4,60}?)(?=[,.]|\s+(?:in|for|that|which)\b|$)/gi, text)
+      .forEach(function (hit) { points.push(hit[1].replace(/\s+/g, ' ').trim()); });
+
     var m = text.match(/\bincluding\s+([^.\n]{4,160})/i);
     if (!m) return U.unique(points).slice(0, 6);
     return U.unique(points.concat(m[1].split(/\s*,\s*|\s+as well as\s+|\s+and\s+/i).map(function (part) {
@@ -612,20 +630,64 @@ window.FW = window.FW || {};
     };
   }
 
+  /* The word-count ranges in which a keyword used n times sits inside the band.
+     Returns the workable settings in order, cheapest use-count first. */
+  function densityWindows(termWords, band, ceiling) {
+    var out = [];
+    for (var uses = 1; uses <= 6; uses++) {
+      var occupied = uses * termWords * 100;
+      var minWords = Math.ceil(occupied / band.max);
+      var maxWords = Math.floor(occupied / band.min);
+      if (maxWords < minWords) continue;
+      if (ceiling && minWords > ceiling) break;
+      out.push({ uses: uses, minWords: minWords, maxWords: ceiling ? Math.min(maxWords, ceiling) : maxWords });
+    }
+    return out;
+  }
+
   function buildGaps(meta, instructions) {
     var gaps = [];
 
-    /* A five-word keyword used once in a 300-word piece is already 1.67%. If the
-       brief caps density below that, no draft can satisfy both rules, and the
-       writer should hear it now rather than after the first amber warning. */
+    /* Keyword density only moves in steps: a four-word phrase used once in a
+       300-word piece is 1.33% and used twice is 2.67%, so a 1.5–2.5% band has
+       no setting that satisfies it at that length. The writer would be told
+       "thin", add a second mention, be told "stuffed", and have no way out —
+       when the actual fix is to cut the piece to 266 words. */
     if (meta.keywordDensity && meta.wordCount && meta.wordCount.max) {
       (meta.keywords || []).forEach(function (k) {
         var termWords = String(k.term).trim().split(/\s+/).length;
-        var floorPct = (termWords / meta.wordCount.max) * 100;
-        if (floorPct > meta.keywordDensity.max) {
+        var windows = densityWindows(termWords, meta.keywordDensity, meta.wordCount.max);
+
+        if (!windows.length) {
+          var floorPct = (termWords / meta.wordCount.max) * 100;
           gaps.push('“' + k.term + '” is ' + termWords + ' words, so using it even once in ' +
             meta.wordCount.max + ' words is ' + floorPct.toFixed(1) + '% — above the ' +
             meta.keywordDensity.max + '% cap. The brief contradicts itself; ask which rule wins.');
+          return;
+        }
+
+        /* The ceiling works, but only just: a four-word keyword at a 2% target
+           in 325 words needs exactly two mentions and a piece of 320 words or
+           more. Miss by five words and both mentions fall out of band. That is
+           worth knowing before drafting, not after. */
+        var atCeiling = windows.filter(function (w) { return meta.wordCount.max <= w.maxWords; });
+        if (atCeiling.length) {
+          var fit = atCeiling[0];
+          var span = fit.maxWords - fit.minWords;
+          if (fit.uses > 1 || span < meta.wordCount.max * 0.15) {
+            gaps.push('“' + k.term + '” needs ' + fit.uses + ' mention' + (fit.uses === 1 ? '' : 's') +
+              ' at this length, and only works between ' + fit.minWords + ' and ' + fit.maxWords +
+              ' words — a ' + (span + 1) + '-word target. Plan the length before drafting.');
+          }
+          return;
+        }
+        if (!atCeiling.length) {
+          var best = windows[0];
+          gaps.push('“' + k.term + '” is ' + termWords + ' words. At ' + meta.wordCount.max +
+            ' words, ' + best.uses + ' use is ' + ((best.uses * termWords / meta.wordCount.max) * 100).toFixed(2) +
+            '% and ' + (best.uses + 1) + ' is ' + (((best.uses + 1) * termWords / meta.wordCount.max) * 100).toFixed(2) +
+            '% — neither lands in ' + meta.keywordDensity.min + '–' + meta.keywordDensity.max +
+            '%. Using it ' + best.uses + ' time needs the piece to run ' + best.minWords + '–' + best.maxWords + ' words.');
         }
       });
     }
@@ -641,5 +703,5 @@ window.FW = window.FW || {};
     return gaps;
   }
 
-  FW.brief = { analyze: analyze, FORMATS: FORMATS, TONES: TONES };
+  FW.brief = { analyze: analyze, densityWindows: densityWindows, FORMATS: FORMATS, TONES: TONES };
 })(window.FW);
