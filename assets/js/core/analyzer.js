@@ -348,8 +348,13 @@ window.FW = window.FW || {};
 
       /* Question phrased as a statement */
       sentences.forEach(function (s) {
+        /* "When bonus depreciation is generous, a buyer can expense it at once."
+           opens on a subordinating conjunction, not a question word. The comma
+           closing that first clause is what tells them apart. */
+        var subordinateOpener = /^(?:when|where|while|how|why|as|after|before|since|once)\b[^,.?]{3,80},/i.test(s.text.trim());
         if (/^(who|what|when|where|why|how|is|are|do|does|did|can|could|should|would|will|have|has)\b/i.test(s.text)
           && /\.$/.test(s.text.trim()) && s.words > 3 && !/^how to\b/i.test(s.text)
+          && !subordinateOpener
           && !inHeading(s.start, s.end)) {
           add({
             rule: 'missing-question-mark', type: 'punctuation', severity: 'warning',
@@ -832,6 +837,10 @@ window.FW = window.FW || {};
     for (var i = 0; i + 3 <= words.length; i++) {
       var slice = words.slice(i, i + 3);
       if (slice.every(function (x) { return STOPSET[x.w]; })) continue;
+      /* "26 U.S.C. § 168(k)" reaches this scanner as the words u, s, c. A
+         "phrase" of single letters is an abbreviation taken apart, and a
+         citation format repeating is not a writer padding. */
+      if (slice.every(function (x) { return x.w.length === 1; })) continue;
       var key = slice.map(function (x) { return x.w; }).join(' ');
       (grams[key] = grams[key] || []).push({ start: slice[0].start, end: slice[2].end });
     }
