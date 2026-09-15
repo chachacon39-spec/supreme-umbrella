@@ -428,7 +428,12 @@ window.FW = window.FW || {};
         /* A run of parallel questions — "Does it replace a line item? Does it
            need a migration?" — repeats its opener on purpose. */
         var bothQuestions = /\?\s*$/.test(prose[i - 1].text.trim()) && /\?\s*$/.test(prose[i].text.trim());
-        if (a && a === b && a.length > 2 && !bothQuestions) {
+        /* And two sentences with a subhead between them are not in a row: the
+           reader passes a section break before reaching the second. */
+        var separated = headingRanges.some(function (r) {
+          return r.start >= prose[i - 1].end && r.end <= prose[i].start;
+        });
+        if (a && a === b && a.length > 2 && !bothQuestions && !separated) {
           add({
             rule: 'repeated-opener', type: 'structure', severity: 'warning',
             start: prose[i].start, end: prose[i].start + b.length,
@@ -559,6 +564,10 @@ window.FW = window.FW || {};
         opts.analysis.meta.items.count >= 3);
       paragraphs.forEach(function (p, idx) {
         if (enumerated) return;
+        /* A subhead is a transition — it tells the reader a new section starts.
+           Counting paragraphs straight through one means any piece with the
+           bold subheadings these briefs require trips this eventually. */
+        if (inHeading(p.start, p.start + p.text.replace(/\s+$/, '').length)) { runLength = 0; return; }
         if (transRe.test(p.text)) runLength = 0; else runLength++;
         if (runLength === 4) {
           add({
@@ -593,7 +602,10 @@ window.FW = window.FW || {};
       var FILLER_EXCEPTIONS = {
         rather: /\brather\s+than\b/i,
         just: /\bjust\s+in\s+case\b|\bjust\s+as\b/i,
-        quite: /\bquite\s+(?:a|the)\b/i
+        quite: /\bquite\s+(?:a|the)\b/i,
+        /* "if you know where the spread is going" is a verb and its object, not
+           the conversational filler the rule is aimed at. */
+        'you know': /\byou\s+know\s+(?:where|what|how|why|who|whether|when|that\b)/i
       };
       L.FILLERS.forEach(function (f, idx) {
         var exception = FILLER_EXCEPTIONS[String(f).toLowerCase()];

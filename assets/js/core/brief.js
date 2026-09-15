@@ -15,6 +15,7 @@ window.FW = window.FW || {};
     ['press release', /\bpress release\b/i],
     ['newsletter', /\bnewsletter\b|\bemail (?:copy|blast|sequence)\b/i],
     ['landing page', /\blanding page\b|\bsales page\b|\bhomepage copy\b/i],
+    ['website content', /\bwebsite content\b|\bweb copy\b|\bsite content\b|\bweb page content\b/i],
     ['news report', /\bnews (?:story|report|article)\b|\bbreaking\b|\breported piece\b/i],
     ['feature article', /\bfeature (?:article|piece|story)\b|\blong[- ]form\b|\bprofile piece\b/i],
     ['opinion / op-ed', /\bop[- ]ed\b|\bopinion piece\b|\bcolumn\b/i],
@@ -42,7 +43,7 @@ window.FW = window.FW || {};
   var PERSONA_SIGNALS = {
     blog: /\bblog\b|\bseo\b|\bkeyword\b|\bpost\b|\bcms\b|\bwordpress\b|\borganic traffic\b/i,
     review: /\breview\b|\bproduct\b|\brating\b|\bpros and cons\b|\bverdict\b|\btested\b|\baffiliate\b/i,
-    financial: /\bfinanc|\binvest|\bmarket\b|\bearnings\b|\bstock|\bbond|\bcrypto|\beconom|\bfintech\b|\bportfolio\b|\bbasis points?\b|\bfed\b/i,
+    financial: /\bfinanc|\binvest|\bmarket\b|\bearnings\b|\bstock|\bbond|\bcrypto|\beconom|\bfintech\b|\bportfolio\b|\bbasis points?\b|\bfed\b|\bforex\b|\bcurrenc|\btrading\b|\byield|\bcentral bank\b|\bhedg/i,
     business: /\bb2b\b|\bexecutive\b|\bstrateg|\bmemo\b|\bcase stud|\bstakeholder|\bkpi\b|\broi\b|\bwhite ?paper\b|\bconsult/i,
     nonfiction: /\bchapter\b|\bmanuscript\b|\bnarrative nonfiction\b|\bmemoir\b|\bbiograph|\bhistor|\barchiv/i,
     fiction: /\bfiction\b|\bshort story\b|\bnovel\b|\bcharacter\b|\bplot\b|\bscene\b|\bprotagonist\b|\bworld[- ]build/i,
