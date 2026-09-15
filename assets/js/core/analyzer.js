@@ -180,8 +180,14 @@ window.FW = window.FW || {};
       rule('an-consonant', 'grammar', 'error', /\ban\s+([b-df-hj-np-tv-z]\w*)/gi,
         function (m) { return 'Use “a” before a consonant sound: a ' + m[1] + '.'; },
         function (m) { return 'a ' + m[1]; });
+      /* An initialism is read letter by letter, and the names of F, H, L, M, N,
+         R, S and X all open on a vowel sound — "an SBIR grant", "an FDA ruling".
+         No list of acronyms can be complete, so recognise the shape instead. */
+      var AN_INITIALISM = /^[FHLMNRSX][A-Z0-9]{1,6}$/;
       issues = issues.filter(function (i) {
-        return i.rule !== 'an-consonant' || !AN_BEFORE_CONSONANT.test(i.excerpt.replace(/^an\s+/i, ''));
+        if (i.rule !== 'an-consonant') return true;
+        var word = i.excerpt.replace(/^an\s+/i, '');
+        return !AN_BEFORE_CONSONANT.test(word) && !AN_INITIALISM.test(word);
       });
 
       rule('doubled-word', 'grammar', 'error', /\b(\w{2,})\s+\1\b/gi,

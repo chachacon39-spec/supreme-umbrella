@@ -985,8 +985,20 @@ window.FW = window.FW || {};
               kwStatus = 'manual';
               kwDetail += ' — unreachable: ' + termWords + ' words in ' + ceiling +
                 ' is ' + floorPct.toFixed(2) + '% at a single use. Raise it with the client.';
-            } else if (pct < band.min) { kwStatus = 'warn'; kwDetail += ' (thin)'; }
-            else if (pct > band.max) { kwStatus = 'warn'; kwDetail += ' (stuffed)'; }
+            } else if (pct < band.min || pct > band.max) {
+              kwStatus = 'warn';
+              kwDetail += pct < band.min ? ' (thin)' : ' (stuffed)';
+              /* Adding a mention is not always the fix. Density moves in steps,
+                 so sometimes the only setting that lands in band is a shorter
+                 piece — say which, rather than leaving the writer to oscillate. */
+              var windows = FW.brief.densityWindows(termWords, band, ceiling || 0);
+              var usable = windows.filter(function (w) { return words < w.minWords || words > w.maxWords; });
+              if (windows.length && usable.length === windows.length) {
+                var w0 = windows[0];
+                kwDetail += ' — ' + w0.uses + ' use' + (w0.uses === 1 ? '' : 's') +
+                  ' lands in band at ' + w0.minWords + '–' + w0.maxWords + ' words';
+              }
+            }
           }
           out.push({ label: c.label, status: kwStatus, detail: kwDetail });
           break;

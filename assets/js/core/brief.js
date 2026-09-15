@@ -612,20 +612,51 @@ window.FW = window.FW || {};
     };
   }
 
+  /* The word-count ranges in which a keyword used n times sits inside the band.
+     Returns the workable settings in order, cheapest use-count first. */
+  function densityWindows(termWords, band, ceiling) {
+    var out = [];
+    for (var uses = 1; uses <= 6; uses++) {
+      var occupied = uses * termWords * 100;
+      var minWords = Math.ceil(occupied / band.max);
+      var maxWords = Math.floor(occupied / band.min);
+      if (maxWords < minWords) continue;
+      if (ceiling && minWords > ceiling) break;
+      out.push({ uses: uses, minWords: minWords, maxWords: ceiling ? Math.min(maxWords, ceiling) : maxWords });
+    }
+    return out;
+  }
+
   function buildGaps(meta, instructions) {
     var gaps = [];
 
-    /* A five-word keyword used once in a 300-word piece is already 1.67%. If the
-       brief caps density below that, no draft can satisfy both rules, and the
-       writer should hear it now rather than after the first amber warning. */
+    /* Keyword density only moves in steps: a four-word phrase used once in a
+       300-word piece is 1.33% and used twice is 2.67%, so a 1.5–2.5% band has
+       no setting that satisfies it at that length. The writer would be told
+       "thin", add a second mention, be told "stuffed", and have no way out —
+       when the actual fix is to cut the piece to 266 words. */
     if (meta.keywordDensity && meta.wordCount && meta.wordCount.max) {
       (meta.keywords || []).forEach(function (k) {
         var termWords = String(k.term).trim().split(/\s+/).length;
-        var floorPct = (termWords / meta.wordCount.max) * 100;
-        if (floorPct > meta.keywordDensity.max) {
+        var windows = densityWindows(termWords, meta.keywordDensity, meta.wordCount.max);
+
+        if (!windows.length) {
+          var floorPct = (termWords / meta.wordCount.max) * 100;
           gaps.push('“' + k.term + '” is ' + termWords + ' words, so using it even once in ' +
             meta.wordCount.max + ' words is ' + floorPct.toFixed(1) + '% — above the ' +
             meta.keywordDensity.max + '% cap. The brief contradicts itself; ask which rule wins.');
+          return;
+        }
+
+        /* A window exists, but not at the length the brief asks for. */
+        var atCeiling = windows.filter(function (w) { return meta.wordCount.max <= w.maxWords; });
+        if (!atCeiling.length) {
+          var best = windows[0];
+          gaps.push('“' + k.term + '” is ' + termWords + ' words. At ' + meta.wordCount.max +
+            ' words, ' + best.uses + ' use is ' + ((best.uses * termWords / meta.wordCount.max) * 100).toFixed(2) +
+            '% and ' + (best.uses + 1) + ' is ' + (((best.uses + 1) * termWords / meta.wordCount.max) * 100).toFixed(2) +
+            '% — neither lands in ' + meta.keywordDensity.min + '–' + meta.keywordDensity.max +
+            '%. Using it ' + best.uses + ' time needs the piece to run ' + best.minWords + '–' + best.maxWords + ' words.');
         }
       });
     }
@@ -641,5 +672,5 @@ window.FW = window.FW || {};
     return gaps;
   }
 
-  FW.brief = { analyze: analyze, FORMATS: FORMATS, TONES: TONES };
+  FW.brief = { analyze: analyze, densityWindows: densityWindows, FORMATS: FORMATS, TONES: TONES };
 })(window.FW);

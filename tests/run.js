@@ -14,6 +14,7 @@ var SUITES = [
   require('./flight-schools.test'),
   require('./local-seo.test'),
   require('./legal-brief.test'),
+  require('./grant-brief.test'),
   require('./history.test'),
   require('./backup.test')
 ];
