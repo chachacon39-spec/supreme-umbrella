@@ -404,6 +404,12 @@ window.FW = window.FW || {};
     matchAll(/\b(?:include|feature|name|profile)\s+at least\s+(?:one|two|three|\d+)\s+([\w\s-]{3,40}?)\s+(?:from|for|per)\s+each\b/gi, text)
       .forEach(function (hit) { points.push(hit[1].trim()); });
 
+    /* "covering 3 new offerings ... and how they may impact the current market"
+       — a second requirement per item, hung off the end of the sentence as a
+       clause. It is the argument the client is paying for, not a detail. */
+    matchAll(/\band how (?:they|these|it|this|the\s+\w+)\s+(?:may|might|could|will|can|would)?\s*([\w\s-]{4,60}?)(?=[,.]|\s+(?:in|for|that|which)\b|$)/gi, text)
+      .forEach(function (hit) { points.push(hit[1].replace(/\s+/g, ' ').trim()); });
+
     var m = text.match(/\bincluding\s+([^.\n]{4,160})/i);
     if (!m) return U.unique(points).slice(0, 6);
     return U.unique(points.concat(m[1].split(/\s*,\s*|\s+as well as\s+|\s+and\s+/i).map(function (part) {
@@ -648,8 +654,21 @@ window.FW = window.FW || {};
           return;
         }
 
-        /* A window exists, but not at the length the brief asks for. */
+        /* The ceiling works, but only just: a four-word keyword at a 2% target
+           in 325 words needs exactly two mentions and a piece of 320 words or
+           more. Miss by five words and both mentions fall out of band. That is
+           worth knowing before drafting, not after. */
         var atCeiling = windows.filter(function (w) { return meta.wordCount.max <= w.maxWords; });
+        if (atCeiling.length) {
+          var fit = atCeiling[0];
+          var span = fit.maxWords - fit.minWords;
+          if (fit.uses > 1 || span < meta.wordCount.max * 0.15) {
+            gaps.push('“' + k.term + '” needs ' + fit.uses + ' mention' + (fit.uses === 1 ? '' : 's') +
+              ' at this length, and only works between ' + fit.minWords + ' and ' + fit.maxWords +
+              ' words — a ' + (span + 1) + '-word target. Plan the length before drafting.');
+          }
+          return;
+        }
         if (!atCeiling.length) {
           var best = windows[0];
           gaps.push('“' + k.term + '” is ' + termWords + ' words. At ' + meta.wordCount.max +

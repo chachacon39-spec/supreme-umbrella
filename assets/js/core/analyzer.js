@@ -326,6 +326,9 @@ window.FW = window.FW || {};
         /* The comma sits either side of a state code — "Bozeman, MT" or
            "MT, call ahead" — and in both cases it is geographic, not a series. */
         if (PLACE_COMMA.test(m[1]) || PLACE_COMMA.test(m[2])) return;
+        /* "…your existing vendors, whether or not you buy any of it" is a
+           clause opening on a fixed phrase, not a third list item. */
+        if (/^(?:whether|either|neither|rather|sooner)$/i.test(m[2])) return;
         add({
           rule: 'oxford', type: 'punctuation', severity: 'suggestion',
           start: m.index, end: m.index + m[0].length,
@@ -417,7 +420,10 @@ window.FW = window.FW || {};
       var prose = sentences.filter(function (s) { return !inHeading(s.start, s.end); });
       for (var i = 1; i < prose.length; i++) {
         var a = firstWord(prose[i - 1].text), b = firstWord(prose[i].text);
-        if (a && a === b && a.length > 2) {
+        /* A run of parallel questions — "Does it replace a line item? Does it
+           need a migration?" — repeats its opener on purpose. */
+        var bothQuestions = /\?\s*$/.test(prose[i - 1].text.trim()) && /\?\s*$/.test(prose[i].text.trim());
+        if (a && a === b && a.length > 2 && !bothQuestions) {
           add({
             rule: 'repeated-opener', type: 'structure', severity: 'warning',
             start: prose[i].start, end: prose[i].start + b.length,
@@ -454,6 +460,13 @@ window.FW = window.FW || {};
       var briefMeta = (opts.analysis && opts.analysis.meta) || {};
       function exemptPhrase(phrase) {
         String(phrase || '').toLowerCase().split(/[^a-z0-9'’-]+/).forEach(function (w) {
+          if (!w) return;
+          /* The phrase scanner reads letter runs, so "B2B" reaches it as "b".
+             Exempt that too, or a keyword the brief orders twice comes back as
+             a repeated phrase. Short tokens are harmless here: the word-level
+             rule ignores anything under four characters anyway. */
+          var letters = w.match(/^[a-z]+/);
+          if (letters && letters[0] !== w) required[letters[0]] = true;
           if (w.length <= 3) return;
           required[w] = true;
           /* A keyword saying "flight schools" licenses "school" too. */
@@ -464,7 +477,7 @@ window.FW = window.FW || {};
       /* "Including rates, course hours and course structure" on each of five
          schools means those words appear five times by instruction. */
       (briefMeta.coverage || []).forEach(exemptPhrase);
-      repeatedWords(text, sentences, required).forEach(add);
+      repeatedWords(text, sentences, required, inHeading).forEach(add);
 
       /* Repeated phrases (3-grams) */
       repeatedPhrases(text, required).forEach(add);
@@ -734,10 +747,11 @@ window.FW = window.FW || {};
     return false;
   }
 
-  function repeatedWords(text, sentences, exempt) {
+  function repeatedWords(text, sentences, exempt, isHeading) {
     var out = [];
     var tokens = [];
     exempt = exempt || {};
+    isHeading = isHeading || function () { return false; };
     var re = /[A-Za-z][A-Za-z'’-]{3,}/g, m;
     while ((m = re.exec(text)) !== null) {
       var w = m[0].toLowerCase();
@@ -750,6 +764,10 @@ window.FW = window.FW || {};
          three of them are called one. A capitalised word sitting next to
          another capitalised word is part of a name, not a writer's vocabulary. */
       if (/^[A-Z]/.test(m[0]) && nextToProperNoun(text, m)) continue;
+      /* Subheads in a breakdown share a word by construction — "Launch one",
+         "Launch two". Labels alone are not a writer repeating themselves, so
+         only prose counts, the same as the two sentence-opener rules. */
+      if (isHeading(m.index, m.index + m[0].length)) continue;
       tokens.push({ word: w, start: m.index, end: m.index + m[0].length });
     }
     var byWord = {};

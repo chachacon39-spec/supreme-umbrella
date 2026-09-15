@@ -994,7 +994,12 @@ window.FW = window.FW || {};
               var windows = FW.brief.densityWindows(termWords, band, ceiling || 0);
               var usable = windows.filter(function (w) { return words < w.minWords || words > w.maxWords; });
               if (windows.length && usable.length === windows.length) {
-                var w0 = windows[0];
+                /* Point at the nearest workable length, not the first one. At 300
+                   words the fix is to reach 320, not to cut back to 266. */
+                var w0 = windows.slice().sort(function (a, b) {
+                  function gap(w) { return words < w.minWords ? w.minWords - words : words - w.maxWords; }
+                  return gap(a) - gap(b);
+                })[0];
                 kwDetail += ' — ' + w0.uses + ' use' + (w0.uses === 1 ? '' : 's') +
                   ' lands in band at ' + w0.minWords + '–' + w0.maxWords + ' words';
               }
