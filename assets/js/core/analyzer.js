@@ -202,7 +202,9 @@ window.FW = window.FW || {};
       rule('could-of', 'grammar', 'error', /\b(could|should|would|must|might)\s+of\b/gi,
         'Should be “have”, not “of”.', function (m) { return m[1] + ' have'; });
 
-      rule('its-possessive', 'grammar', 'error', /\bit'?s\s+(own|way|place|purpose)\b/gi,
+      /* Only the apostrophe form is wrong. Matching "its" too flagged correct
+         possessives as errors and offered a fix identical to the text. */
+      rule('its-possessive', 'grammar', 'error', /\bit['’]s\s+(own|way|place|purpose)\b/gi,
         'Possessive is “its” with no apostrophe.', function (m) { return 'its ' + m[1]; });
       rule('its-contraction', 'grammar', 'error', /\bits\s+(been|going|going to|a\b|the\b|not\b|clear\b|time\b)/gi,
         'This looks like “it is / it has” — use “it’s”.',
@@ -471,14 +473,14 @@ window.FW = window.FW || {};
       function exemptPhrase(phrase) {
         String(phrase || '').toLowerCase().split(/[^a-z0-9'’-]+/).forEach(function (w) {
           if (!w) return;
-          /* The phrase scanner reads letter runs, so "B2B" reaches it as "b".
-             Exempt that too, or a keyword the brief orders twice comes back as
-             a repeated phrase. Short tokens are harmless here: the word-level
-             rule ignores anything under four characters anyway. */
-          var letters = w.match(/^[a-z]+/);
-          if (letters && letters[0] !== w) required[letters[0]] = true;
-          if (w.length <= 3) return;
+          /* The phrase scanner reads letter runs, so "B2B" reaches it as "b" and
+             "3d" as "d" — the run is not always at the front. Exempt every run,
+             or a keyword the brief orders twice comes back as a repeated
+             phrase. Short tokens are harmless here: the word-level rule ignores
+             anything under four characters anyway. */
           required[w] = true;
+          (w.match(/[a-z]+/g) || []).forEach(function (run) { required[run] = true; });
+          if (w.length <= 3) return;
           /* A keyword saying "flight schools" licenses "school" too. */
           required[/s$/.test(w) ? w.replace(/s$/, '') : w + 's'] = true;
         });
@@ -490,7 +492,7 @@ window.FW = window.FW || {};
       repeatedWords(text, sentences, required, inHeading).forEach(add);
 
       /* Repeated phrases (3-grams) */
-      repeatedPhrases(text, required).forEach(add);
+      repeatedPhrases(text, required, inHeading).forEach(add);
 
       /* Duplicate sentences */
       var sentMap = {};
@@ -820,8 +822,9 @@ window.FW = window.FW || {};
     return out;
   }
 
-  function repeatedPhrases(text, exempt) {
+  function repeatedPhrases(text, exempt, isHeading) {
     exempt = exempt || {};
+    isHeading = isHeading || function () { return false; };
     var out = [];
     var words = [], re = /[A-Za-z][A-Za-z'’-]*/g, m;
     while ((m = re.exec(text)) !== null) words.push({ w: m[0].toLowerCase(), start: m.index, end: m.index + m[0].length });
@@ -840,8 +843,14 @@ window.FW = window.FW || {};
          assignment, not padding. */
       var content = key.split(' ').filter(function (w) { return !STOPSET[w]; });
       if (content.length && content.every(function (w) { return exempt[w]; })) return;
+      /* A subhead states the claim its paragraph then makes, so the two share
+         wording by design. Word repetition already ignores headings; this is
+         the same rule for the phrase built from those words. */
+      var prose = hits.filter(function (x) { return !isHeading(x.start, x.end); });
+      if (prose.length < 2) return;
+
       /* Report the second occurrence only — one flag per repeated phrase. */
-      var h = hits[1];
+      var h = prose[1];
       /* The key is normalised for matching — lower-cased, numbers dropped — so
          quoting it sends the writer looking for words that are not in their
          draft ("part course structure" for "Part 141 course structure"). */

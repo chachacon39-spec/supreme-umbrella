@@ -18,6 +18,7 @@ var SUITES = [
   require('./argument-brief.test'),
   require('./benchmark-brief.test'),
   require('./finance-brief.test'),
+  require('./ip-brief.test'),
   require('./history.test'),
   require('./backup.test')
 ];
