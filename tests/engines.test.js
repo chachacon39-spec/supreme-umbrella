@@ -99,6 +99,25 @@ async function run() {
     t.atLeast(a.checks.length, 12, 'produces a checkable requirement list');
   });
 
+  await t.section('brief parsing — formats and personas the briefs actually use', function () {
+    /* "Website content covering projections for EUR/USD" states its format
+       plainly; not knowing the term made the app ask the client a question they
+       had already answered. */
+    var web = FW.brief.analyze({
+      title: '',
+      brief: 'Website content covering projections for the EUR/USD pair in FOREX trading for Q1.'
+    });
+    t.equal(web.meta.format, 'website content', 'a brief asking for website content is not an ambiguous deliverable');
+    t.notMatch(web.gaps.join(' | '), /format is ambiguous/, 'and no gap asks what the deliverable is');
+
+    /* A currency-pair outlook is financial writing. The signal list had no
+       forex, currency, trading or yield in it, so this tied with blogging. */
+    t.equal(web.meta.suggestedPersonas[0].id, 'financial', 'a FOREX brief suggests the financial writer first');
+
+    var blogPost = FW.brief.analyze({ title: '', brief: 'Blog post about weekend recipes for busy parents.' });
+    t.notMatch(String(blogPost.meta.format), /website content/, 'and an ordinary blog post is still a blog post');
+  });
+
   await t.section('brief parsing — the awkward cases', function () {
     var forms = [
       ['at least 800 words', 800, null],
