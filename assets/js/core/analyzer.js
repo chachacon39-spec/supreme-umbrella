@@ -99,6 +99,11 @@ window.FW = window.FW || {};
     function add(issue) {
       if (issue.start == null || issue.end == null || issue.end <= issue.start) return;
       if (scanner.isProtected(issue.start, issue.end)) return;
+      /* Blocks are joined by newlines, so an adjacency rule can match the end of
+         one paragraph against the start of the next — "…want it to be" followed
+         by "Bracketed names…" reads as a passive that nobody wrote. Nothing the
+         reader sees as one span crosses a block boundary. */
+      if (text.slice(issue.start, issue.end).indexOf('\n') !== -1) return;
       var key = issue.rule + ':' + issue.start + ':' + issue.end;
       if (seen[key]) return;
       seen[key] = true;

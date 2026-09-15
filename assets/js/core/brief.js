@@ -404,6 +404,18 @@ window.FW = window.FW || {};
     matchAll(/\b(?:include|feature|name|profile)\s+at least\s+(?:one|two|three|\d+)\s+([\w\s-]{3,40}?)\s+(?:from|for|per)\s+each\b/gi, text)
       .forEach(function (hit) { points.push(hit[1].trim()); });
 
+    /* "as well as a brief comparison of each model to the Tesla Model 3" — a
+       named benchmark every item has to be measured against. The benchmark is
+       the checkable part, so make it the requirement. */
+    matchAll(/\b(?:comparison|compare[ds]?|comparing|benchmark(?:ed)?)\s+(?:of|to|against)?\s*each\s+[\w\s-]{2,30}?\s+(?:to|against|with)\s+(?:the\s+)?([\w.'’-]+(?:\s+[\w.'’-]+){0,3})/gi, text)
+      .forEach(function (hit) {
+        /* The capture can run past the end of the sentence and into the next
+           label — "Tesla Model 3. Keywords". Cut at the sentence break. */
+        var benchmark = hit[1].split(/\.\s/)[0].replace(/[.,;:]+$/, '').trim();
+        /* A benchmark is a name. "each of them to the others" is not one. */
+        if (/[A-Z]/.test(benchmark)) points.push(benchmark);
+      });
+
     /* "covering 3 new offerings ... and how they may impact the current market"
        — a second requirement per item, hung off the end of the sentence as a
        clause. It is the argument the client is paying for, not a detail. */
