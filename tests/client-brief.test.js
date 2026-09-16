@@ -29,7 +29,10 @@ var CLIENT_BRIEF = [
   '* The tone of this content should be professional yet engaging, speaking directly to the reader',
   '* Content should be submitted in .docx or .doc format, font size 14, font family Calibri',
   '',
-  'Task #462-B - (300 words) Blog post discussing how Salesforce became one of the market leaders in the SAAS (software as a service) and how they are continuing to differentiate themselves from competitors in similar spaces. Keywords: Salesforce SAAS, SAAS Salesforce 2026'
+  /* The real task line, comparison clause and all. The fixture used to stop
+     at "similar spaces", which is why nothing here noticed what the coverage
+     reader did with "compare each of them to Salesforce". */
+  'Task #462-B - (300 words) Blog post discussing how Salesforce became one of the market leaders in the SAAS (software as a service) and how they are continuing to differentiate themselves from competitors in similar spaces. Please discuss at least 3 other competitors or alternatives in this space and compare each of them to Salesforce. Keywords: Salesforce SAAS, SAAS Salesforce 2026'
 ].join('\n');
 
 var TASK_TITLE = 'Task #462-B — (300 words) Salesforce and the SaaS market';
@@ -125,6 +128,43 @@ async function run() {
     });
 
     /* ---------- the three approaches ---------- */
+    await t.section('the comparison clause', async function () {
+      var a = await page.evaluate(function (args) {
+        var r = FW.brief.analyze({ title: args.title, brief: args.brief });
+        return JSON.parse(JSON.stringify({ items: r.meta.items, coverage: r.meta.coverage }));
+      }, { title: TASK_TITLE, brief: CLIENT_BRIEF });
+      var coverage = a.coverage.join(' | ');
+
+      t.equal(a.items.count, 3, 'three competitors to cover');
+      t.includes(a.items.noun, 'competitor', 'and the noun says what they are');
+
+      /* "compare each of them to Salesforce" names the piece's own subject, and
+         a check the draft cannot fail crowds out the ones that can. */
+      t.notIncludes(a.coverage, 'Salesforce', 'the piece is not asked to cover its own subject');
+      /* Without a modal to absorb, this began on the auxiliary and read
+         "are continuing to differentiate themselves from competitors". */
+      t.includes(coverage, 'continuing to differentiate', 'the differentiation requirement survives');
+      t.notMatch(coverage, /\bare continuing\b/, 'starting where the content does, not on the verb');
+    });
+
+    await t.section('the same two readers on other briefs', async function () {
+      var other = await page.evaluate(function () {
+        function cov(title, brief) {
+          return FW.brief.analyze({ title: title, brief: brief }).meta.coverage;
+        }
+        return JSON.parse(JSON.stringify({
+          /* A benchmark that is not the subject is still the checkable part. */
+          benchmark: cov('Task - (400 words) Electric cars under thirty thousand',
+            'Blog post covering 3 electric car models, as well as a brief comparison of each model to the Tesla Model 3.'),
+          /* A modal is still consumed, exactly as before. */
+          modal: cov('Task - (325 words) Google B2B offerings',
+            'Blog post covering 3 new B2B product offerings from Google and how they may impact the current market for these products.')
+        }));
+      });
+      t.includes(other.benchmark, 'Tesla Model 3', 'a benchmark outside the topic still reports');
+      t.includes(other.modal, 'impact the current market', 'and a modal is still absorbed');
+    });
+
     await t.section('the approaches it offers', async function () {
       var variants = await page.evaluate(function (args) {
         var task = { id: 'probe', title: args.title, brief: args.brief, personaId: 'blog', wordTarget: 0 };
