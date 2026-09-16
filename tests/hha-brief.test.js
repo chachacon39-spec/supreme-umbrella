@@ -374,10 +374,17 @@ async function run() {
       t.match(compliance, /249 words so far \(references excluded\)/, 'the count leaves the references out');
       t.match(compliance, /1 of 1 with the keyword as anchor text/, 'and the link is on a keyword');
 
+      /* The previous section left the right pane on Export, where .issue-list
+         is not rendered at all — the notMatch assertions below would have
+         passed against an empty string. Go back to Checks first, then prove
+         the panel is actually showing something before reading it for absences. */
+      await page.locator('.pane-right .tab', { hasText: 'Checks' }).first().click();
+      await page.waitForTimeout(500);
       var issueText = await page.evaluate(function () {
         var host = document.querySelector('.issue-list');
         return host ? host.innerText : '';
       });
+      t.ok(/hours/.test(issueText), 'the issue panel is on screen and populated');
       t.notMatch(issueText, /reads as a question/, 'the free relative draws no question finding');
       t.notMatch(issueText, /lowercase letter/, 'and the C.F.R. citation none either');
 
