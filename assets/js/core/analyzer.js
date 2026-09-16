@@ -872,6 +872,13 @@ window.FW = window.FW || {};
          "phrase" of single letters is an abbreviation taken apart, and a
          citation format repeating is not a writer padding. */
       if (slice.every(function (x) { return x.w.length === 1; })) continue;
+      /* "the Health Care" is not a phrase anyone chose — it is the front of
+         "Health Care Worker Registry" and of "Health Care Worker Background
+         Check Act", two different names that happen to start alike. A window
+         that stops partway through a capitalised run is a truncated name, and
+         the full names are compared at the window that reaches their ends. */
+      var after = text.slice(slice[2].end, slice[2].end + 3);
+      if (/^[A-Z]/.test(text.charAt(slice[2].start)) && /^\s+[A-Z]/.test(after)) continue;
       /* The scanner reads letters only, so "at least 120 hours" and "at least
          20 hours" both arrive as at/least/hours and collide. The digits sit in
          the gaps between the words, so put them back into the key. */
