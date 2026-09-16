@@ -395,6 +395,11 @@ window.FW = window.FW || {};
              search, not the thing to write about. */
           .replace(/\s+(?:being|that (?:are|is)|which (?:are|is))\s+[\w-]+$/i, '');
         if (!noun) continue;
+        /* "include at least 2 positive and 2 negative impacts" — a noun holding
+           a second number means the capture ran across a compound requirement,
+           and the count it found is not the one the piece is built on. The
+           number has to stand alone: "B2B product offerings" is a noun. */
+        if (/(?:^|\s)\d+(?:\s|$)/.test(noun)) continue;
         /* The disqualifying word can sit just past the capture: "2 APA or
            AMA-style citations" stops the noun at "APA". Read on a little. */
         var context = text.slice(m.index, m.index + m[0].length + 40);
@@ -403,6 +408,24 @@ window.FW = window.FW || {};
       }
     }
     return null;
+  }
+
+  /* "at least 2 positive and 2 negative impacts" is not a count of things to
+     write about — it is a requirement that they divide two ways. A piece with
+     four upsides and no downsides meets "4 ways" and fails the brief. */
+  function findBalance(text) {
+    var NUM = '\\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten';
+    var re = new RegExp('\\bat least\\s+(' + NUM + ')\\s+([a-z-]{3,20})\\s+and\\s+(?:at least\\s+)?(' +
+      NUM + ')\\s+([a-z-]{3,20})\\s+([a-z][\\w\\s-]{2,30}?)(?=[,.]|\\s+(?:that|which|to|for|in|from)\\b|$)', 'i');
+    var m = text.match(re);
+    if (!m) return [];
+    var noun = m[5].replace(/\s+/g, ' ').trim();
+    var first = numWord(m[1]), second = numWord(m[3]);
+    if (!(first >= 1 && first <= 20 && second >= 1 && second <= 20)) return [];
+    return [
+      { count: first, label: m[2].toLowerCase(), noun: noun },
+      { count: second, label: m[4].toLowerCase(), noun: noun }
+    ];
   }
 
   /* "including rates, course hours and course structure/overview" — three things
@@ -543,6 +566,7 @@ window.FW = window.FW || {};
       structure: structure,
       keywordDensity: findKeywordDensity(normalized),
       items: findItemCount(normalized),
+      balance: findBalance(normalized),
       coverage: findCoveragePoints(normalized),
       /* Most academic-ish briefs exempt the reference list from the count, and a
          writer who trims real copy to make room for it has lost words for free. */
@@ -590,6 +614,11 @@ window.FW = window.FW || {};
       check('items', 'structure', 'Cover ' + meta.items.count + ' ' + meta.items.noun,
         'The brief asks for ' + meta.items.count + '. Counted from subheadings and list items.');
     }
+    meta.balance.forEach(function (side, i) {
+      check('balance-' + i, 'deliverable',
+        'At least ' + side.count + ' ' + side.label + ' ' + side.noun,
+        'The brief asks for both sides; only you can judge which is which.');
+    });
     meta.coverage.forEach(function (point, i) {
       check('cover-' + i, 'coverage', 'Cover “' + point + '”',
         meta.items ? 'The brief asks for this on each of the ' + meta.items.count + '.' : '');
