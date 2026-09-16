@@ -101,6 +101,52 @@ var TEXAS_DRAFT = [
   "<p>26 Tex. Admin. Code &sect; 558.701 (2026). <em>Home health aide qualifications</em>.</p>"
 ].join('\n');
 
+/* The third sibling. Illinois answers the brief a third way: there is no
+ * separate aide certificate and no absence of one either — the state routes
+ * aides through the nursing assistant credential and a registry listing. The
+ * draft is dense with statute names, and two of them share a front end. */
+var ILLINOIS_BRIEF = [
+  "Task #491 Content Guidelines",
+  "Vocational/Job Training Blog Content",
+  "",
+  "* These tasks are content for a blog related to the Vocational/Job Training sector",
+  "* Each piece of content should be no longer than 300 words",
+  "* Each piece should include an SEO-friendly engaging title",
+  "* Content should insert any keywords mentioned at a density of 2% throughout the content",
+  "* The keyword should link to an outside relevant article on an authoritative website at least once (please see [link](https://moz.com/top500) for examples of authoritative websites)",
+  "* Content should include an introductory heading in bold (as well as bolded subheadings whenever possible)",
+  "* Each section or paragraph of content should include no more than 5 lines of text before inserting a line space",
+  "* Content should include 1 royalty-free hi-res feature image (dimensions 600 x 600 px) as well as two smaller royalty-free images inserted throughout the text",
+  "* Content should include at least 2 APA or AMA-style citations at the end of the content with at least one direct reference to each citation throughout the content (either APA or AMA is acceptable as long as all citations follow the same format). Citations do not count toward the total word count of the piece",
+  "* Content should be unique, well-researched and provide value beyond content that is already available online or in other sources",
+  "* The tone of this content should be professional yet engaging, speaking directly to the reader",
+  "* Content should be submitted in .docx or .doc format, font size 14, font family Calibri",
+  "",
+  "Task #491-E - (300 words) Blog post that provides a brief description and breakdown of the state requirements for Home Health Aide certification training programs in Illinois. Please also provide a brief breakdown of 3 state-approved or accredited HHA certification training programs. Keywords: Illinois HHA training programs 2026, Illinois Home Health Aide certification 2026"
+].join('\n');
+
+var ILLINOIS_TITLE = 'Task #491-E \u2014 (300 words) Illinois HHA certification requirements';
+
+var ILLINOIS_DRAFT = [
+  "<h1>In Illinois, the Home Health Aide Credential Is the CNA</h1>",
+  "<p><strong>One program, one exam, one registry</strong></p>",
+  "<p>Anyone comparing <a href=\"https://dph.illinois.gov/topics-services/health-care-regulation/health-care-worker-registry.html\">Illinois HHA training programs 2026</a> notices something quickly. The state runs no separate aide course. It sends everyone through the nursing assistant program instead.</p>",
+  "<p><strong>What the 120 hours contain</strong></p>",
+  "<p>A Basic Nursing Assistant Training Program runs 120 hours: 62 of theory, 18 in the lab and 40 of clinical instruction (77 Ill. Adm. Code &sect; 395.150). Twelve theory hours cover Alzheimer&rsquo;s disease and other dementias. Four cover CPR, and you must be certified before the course ends.</p>",
+  "<p>Programs take at least four weeks and no more than 120 days, unless a college spreads the work across a term.</p>",
+  "<p><strong>What turns a course into a job</strong></p>",
+  "<p>Illinois Home Health Aide certification 2026 finishes at the Health Care Worker Registry. You pass a written exam and a 21-skill practical test. Next comes a background check under the Health Care Worker Background Check Act (225 ILCS 46). Then your name goes on the registry, and agencies hire from it.</p>",
+  "<p><strong>Three approved programs</strong></p>",
+  "<p><strong>Waubonsee Community College</strong>, Sugar Grove. A non-credit program that feeds straight into the state exam.</p>",
+  "<p><strong>McHenry County College</strong>, Crystal Lake. The same certificate for the north-west suburbs.</p>",
+  "<p><strong>Illinois Valley Community College</strong>, Oglesby. A downstate option, away from the Chicago schools.</p>",
+  "<p><strong>One thing to check</strong></p>",
+  "<p>Make sure your school sits on the current IDPH approved list before you pay. Only an approved program gets you listed, and that listing is what an employer checks.</p>",
+  "<h2>References</h2>",
+  "<p>77 Ill. Adm. Code &sect; 395.150 (2026). <em>Minimum hours of instruction</em>.</p>",
+  "<p>Health Care Worker Background Check Act, 225 ILCS 46 (2026).</p>"
+].join('\n');
+
 async function openApp(browser) {
   var page = await browser.newPage({ viewport: { width: 1500, height: 960 } });
   var errors = [];
@@ -387,6 +433,78 @@ async function run() {
       t.ok(/hours/.test(issueText), 'the issue panel is on screen and populated');
       t.notMatch(issueText, /reads as a question/, 'the free relative draws no question finding');
       t.notMatch(issueText, /lowercase letter/, 'and the C.F.R. citation none either');
+
+      t.equal(page.__errors.length, 0, 'no console errors: ' + page.__errors.join(' | '));
+    });
+
+
+    await t.section('two names that start alike', async function () {
+      var checks = await page.evaluate(function () {
+        function n(text) {
+          return FW.analyzer.analyze(text, {}).issues
+            .filter(function (i) { return i.rule === 'phrase-repetition'; })
+            .map(function (i) { return i.message; });
+        }
+        return {
+          twoNames: n('Your name goes on the Health Care Worker Registry. A background check runs under the Health Care Worker Background Check Act.'),
+          sameName: n('Register with the Health Care Worker Registry first. Employers search the Health Care Worker Registry daily. Nothing happens until the Health Care Worker Registry lists you.'),
+          prose: n('You should reprice the book before renewal. Reprice the book before renewal or you lose margin. Reprice the book before renewal season.')
+        };
+      });
+      /* "the Health Care" is the front of two different statutes, not a phrase
+         the writer chose. The window that reaches a name's end still compares
+         the whole name. */
+      t.equal(checks.twoNames.length, 0, 'two names sharing a front end are not one phrase twice');
+      t.atLeast(checks.sameName.length, 1, 'the same name three times still reports');
+      t.includes(checks.sameName[0], 'Care Worker Registry', 'quoting the part that actually repeats');
+      t.atLeast(checks.prose.length, 1, 'and ordinary padding is untouched');
+    });
+
+    await t.section('a third state, a third answer', async function () {
+      await page.locator('.viewnav button', { hasText: 'Board' }).click();
+      await page.waitForTimeout(300);
+      await page.locator('.board-bar .btn-primary', { hasText: 'New assignment' }).click();
+      await page.waitForTimeout(300);
+      var inputs = page.locator('.modal input[type="text"]');
+      await inputs.nth(0).fill(ILLINOIS_TITLE);
+      await inputs.nth(1).fill('Portal client');
+      await page.locator('.modal textarea').fill(ILLINOIS_BRIEF);
+      await page.waitForTimeout(500);
+      await page.locator('.modal-foot .btn-primary', { hasText: 'Create & analyse' }).click();
+      await page.waitForTimeout(900);
+      await page.locator('.style-card .btn', { hasText: 'Start draft' }).first().click();
+      await page.waitForTimeout(900);
+      var confirm = page.locator('.modal-foot .btn', { hasText: 'Replace draft' });
+      if (await confirm.count()) { await confirm.click(); await page.waitForTimeout(600); }
+
+      await page.evaluate(function (html) {
+        var ed = document.querySelector('.editor');
+        ed.innerHTML = html;
+        ed.dispatchEvent(new InputEvent('input', { bubbles: true }));
+      }, ILLINOIS_DRAFT);
+      await page.waitForTimeout(2000);
+
+      var compliance = await page.evaluate(function () {
+        var first = document.querySelector('.check-item');
+        return first && first.parentElement ? first.parentElement.innerText : '';
+      });
+      t.match(compliance, /2\.00% of 1\.5\u20132\.5%/, 'the five-word keyword lands in band');
+      t.match(compliance, /2\.40% of 1\.5\u20132\.5%/, 'and the six-word one');
+      t.match(compliance, /250 words so far \(references excluded\)/, 'the count leaves the references out');
+      t.match(compliance, /Cover 3 state-approved/, 'the three programmes are tracked');
+
+      /* Reading a panel for absences only means something when the panel is
+         on screen — the export section before this leaves it on another tab. */
+      await page.locator('.pane-right .tab', { hasText: 'Checks' }).first().click();
+      await page.waitForTimeout(500);
+      var counts = await page.evaluate(function () {
+        /* .issue-list is not rendered at all when there is nothing to list, so
+           a clean draft has to be read off the pane that holds the verdict. */
+        var host = document.querySelector('.pane-right');
+        return { text: host ? host.innerText : '', items: document.querySelectorAll('.issue-item').length };
+      });
+      t.match(counts.text, /No issues found/, 'the panel is on screen and reporting a clean draft');
+      t.equal(counts.items, 0, 'a page of statutes and hour counts draws nothing');
 
       t.equal(page.__errors.length, 0, 'no console errors: ' + page.__errors.join(' | '));
     });
