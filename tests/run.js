@@ -8,6 +8,7 @@ var { GREEN, RED, BOLD, OFF } = require('./harness');
 
 var SUITES = [
   require('./engines.test'),
+  require('./fixtures.test'),
   require('./app.test'),
   require('./client-brief.test'),
   require('./marketing-brief.test'),

@@ -1,0 +1,15 @@
+Task #455 Content Guidelines
+Financial Website Content
+
+* These tasks are content for a blog related to the financial sector
+* Each piece of content should be no longer than 400 words
+* Each piece should include an SEO-friendly engaging title
+* Content should insert any keywords mentioned at a density of 1-2% throughout the content
+* Content should include an introductory heading in bold (as well as bolded subheadings whenever possible)
+* Each section or paragraph of content should include no more than 5 lines of text before inserting a line space
+* Content should include 1 royalty-free hi-res feature image (dimensions 400 x 600 px) as well as two smaller royalty-free images inserted throughout the text
+* Content should be unique, well-researched and provide value beyond content that is already available online or in other sources
+* The tone of this content should be professional yet engaging, speaking directly to the reader
+* Content should be submitted in .docx or .doc format, font size 14, font family Calibri
+
+Task #455-A - (400 words) Website content covering projections for EUR/USD pair in FOREX trading for Q1 2026. Keywords: EUR/USD pair projections 2026, EUR/USD pair Forex 2026
