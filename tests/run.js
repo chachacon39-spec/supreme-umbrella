@@ -21,6 +21,7 @@ var SUITES = [
   require('./ip-brief.test'),
   require('./tax-brief.test'),
   require('./hha-brief.test'),
+  require('./longform-brief.test'),
   require('./history.test'),
   require('./backup.test')
 ];

@@ -69,6 +69,11 @@ window.FW = window.FW || {};
 
   /* ---- word count ---- */
   function findWordCount(text) {
+    /* "between 1,500 and 1,800 words" joins its bounds with a word, not a dash,
+       so the range test missed it and the single-number branch below built a
+       band around 1,800 that ran to 1,980 — 180 words past the client's cap. */
+    var between = text.match(/\bbetween\s+(\d[\d,]{1,7})\s+and\s+(\d[\d,]{1,7})\s*words?\b/i);
+    if (between) return { min: num(between[1]), max: num(between[2]), raw: between[0] };
     var range = text.match(/(\d[\d,]{1,7})\s*(?:-|–|—|to)\s*(\d[\d,]{1,7})\s*(?:\+)?\s*words?\b/i);
     if (range) return { min: num(range[1]), max: num(range[2]), raw: range[0] };
     var atLeast = text.match(/(?:at least|minimum(?: of)?|no fewer than|min\.?)\s*(\d[\d,]{1,7})\s*words?\b/i);
@@ -288,7 +293,10 @@ window.FW = window.FW || {};
   /* ---- structural asks ---- */
   function findStructure(text) {
     var s = {};
-    var h2 = text.match(/(\d+)\s*(?:h2|subheading|sub[- ]head|section)s?\b/i);
+    /* "at least one H2 subheading" offered the scanner "2 subheading", and a
+       brief asking for five sections was read as asking for two. A digit
+       welded to a letter is part of a tag name, not a count. */
+    var h2 = text.match(/(?:^|[^A-Za-z\d])(\d+)\s*(?:h2|h3|subheading|sub[- ]head|section)s?\b/i);
     if (h2) s.sections = num(h2[1]);
     if (/\bmeta description\b/i.test(text)) s.metaDescription = true;
     if (/\btitle tag\b|\bseo title\b/i.test(text)) s.titleTag = true;
@@ -302,8 +310,13 @@ window.FW = window.FW || {};
     if (/\bbullet(?:ed)? (?:points?|lists?)\b/i.test(text)) s.bullets = true;
     if (/\bimages?\b|\bphotos?\b|\bvisuals?\b|\bgraphics?\b/i.test(text)) s.images = true;
     if (/\bquotes?\b|\binterview\b|\bexpert (?:opinion|comment)\b/i.test(text)) s.quotes = true;
-    var links = text.match(/(\d+)\s*(?:internal|external|outbound|authoritative)?\s*links?\b/i);
-    if (links) s.links = num(links[1]);
+    var links = text.match(/(\d+)\s*(internal|external|outbound|authoritative)?\s*links?\b/i);
+    if (links) {
+      s.links = num(links[1]);
+      /* "at least 2 internal links" is a different requirement from two links
+         of any kind, and the draft can tell them apart by the href. */
+      if (links[2] && /^internal$/i.test(links[2])) s.linksInternal = true;
+    }
 
     /* "The keyword should link to an outside relevant article on an authoritative
        website at least once" — a requirement with no number in it, phrased as a
@@ -311,7 +324,13 @@ window.FW = window.FW || {};
     var linkOut = text.match(/\blinks?\s+(?:out\s+)?to\b[^.\n]{0,100}?\b(?:outside|external|authoritative|reputable|third[- ]party|high[- ]authority)\b/i) ||
       text.match(/\b(?:outbound|external)\s+links?\b/i);
     if (linkOut) {
-      var howMany = text.match(/\bat least\s+(once|twice|\d+)\b/i);
+      /* "at least once" belongs to the bullet about the link. Searching the
+         whole brief found "at least 5 H2 sections" and asked for five
+         outbound links. */
+      var lineStart = text.lastIndexOf('\n', linkOut.index) + 1;
+      var lineEnd = text.indexOf('\n', linkOut.index);
+      var line = text.slice(lineStart, lineEnd === -1 ? text.length : lineEnd);
+      var howMany = line.match(/\bat least\s+(once|twice|\d+)\b/i);
       var n = 1;
       if (howMany) {
         var word = howMany[1].toLowerCase();
@@ -325,12 +344,28 @@ window.FW = window.FW || {};
        number and the noun, so allow a short adjective run. */
     var sources = text.match(/(\d+)\s*(?:[\w.–-]+\s+){0,4}?(?:sources?|references?|citations?)\b/i);
     if (sources) s.sources = num(sources[1]);
+    /* Long-form briefs carry length limits that a 300-word post never does, and
+       a checklist that drops them leaves the writer to remember the numbers.
+       "Supply a meta description" without its 155 is worse than saying nothing:
+       it reads as met when the description is twice the length. */
+    var CAP = '(?:no (?:more|longer|greater) than|no longer|longer than|under|at most|within|max(?:imum)?(?: of)?|up to)';
+    var titleChars = text.match(new RegExp('\\btitle\\b[^.\\n]{0,40}?' + CAP + '\\s*(\\d{2,3})\\s*characters?', 'i'));
+    if (titleChars) s.titleMaxChars = num(titleChars[1]);
+    var metaChars = text.match(new RegExp('\\bmeta description\\b[^.\\n]{0,40}?' + CAP + '\\s*(\\d{2,3})\\s*characters?', 'i'));
+    if (metaChars) s.metaMaxChars = num(metaChars[1]);
+    var sectionWords = text.match(new RegExp('\\b(?:no|each|every)\\s+(?:h2\\s+)?section\\b[^.\\n]{0,40}?' + CAP + '\\s*(\\d{2,4})\\s*words?', 'i'));
+    if (sectionWords) s.sectionMaxWords = num(sectionWords[1]);
+    var faqCount = text.match(/\bfaq\b[^.\n]{0,60}?(?:at least|minimum(?: of)?|no fewer than)\s*(\d{1,2})\s*questions?/i);
+    if (faqCount) s.faqQuestions = num(faqCount[1]);
+
     var dims = text.match(/(\d{2,4})\s*[x×]\s*(\d{2,4})\s*(?:px|pixels)?\b/i);
     if (dims) s.imageSize = dims[1] + ' × ' + dims[2] + ' px';
     return s;
   }
 
+  var readingLevelIsCeiling = false;
   function findReadingLevel(text) {
+    readingLevelIsCeiling = false;
     /* Briefs phrase this every which way: "reading level: 8", "keep the reading
        level around grade 8", "aim for an 8th-grade level", "write at a grade 9". */
     var patterns = [
@@ -342,7 +377,14 @@ window.FW = window.FW || {};
       var m = text.match(patterns[i]);
       if (m) {
         var level = num(m[1]);
-        if (level >= 1 && level <= 16) return level;
+        if (level >= 1 && level <= 16) {
+          /* "grade 9 or below" is a wall, not a target. Writing more plainly
+             than asked meets that brief; the symmetric band the checker used
+             reported grade 7.4 against a grade 9 ceiling as a miss. */
+          var around = text.slice(Math.max(0, m.index - 30), m.index + m[0].length + 24);
+          readingLevelIsCeiling = /\bor (?:below|lower|under|less)\b|\bno (?:higher|greater|more) than\b|\bat most\b|\bmaximum\b|\bunder\b/i.test(around);
+          return level;
+        }
       }
     }
     if (/\bplain (?:english|language)\b|\beasy to read\b/i.test(text)) return 8;
@@ -562,6 +604,7 @@ window.FW = window.FW || {};
       keywords: keywords,
       citationStyle: findCitationStyle(normalized),
       readingLevel: findReadingLevel(normalized),
+      readingLevelCeiling: readingLevelIsCeiling,
       banned: findBannedTerms(normalized),
       structure: structure,
       keywordDensity: findKeywordDensity(normalized),
@@ -600,13 +643,32 @@ window.FW = window.FW || {};
     meta.banned.forEach(function (b, i) {
       check('ban-' + i, 'banned', 'Never use “' + b + '”', 'The brief rules this out explicitly.');
     });
-    if (meta.readingLevel) check('reading', 'reading', 'Reading level around grade ' + meta.readingLevel, 'Checked with Flesch–Kincaid.');
+    if (meta.readingLevel) {
+      check('reading', 'reading',
+        meta.readingLevelCeiling
+          ? 'Reading level grade ' + meta.readingLevel + ' or below'
+          : 'Reading level around grade ' + meta.readingLevel,
+        'Checked with Flesch–Kincaid.');
+    }
     if (structure.sections) check('sections', 'structure', 'At least ' + structure.sections + ' subheadings', 'Use H2s.');
     if (structure.intro) check('intro', 'structure', 'Include an introduction', '');
     if (structure.conclusion) check('conclusion', 'structure', 'Include a conclusion', '');
     if (structure.cta) check('cta', 'structure', 'Include a call to action', '');
-    if (structure.faq) check('faq', 'structure', 'Include an FAQ section', '');
-    if (structure.metaDescription) check('meta', 'deliverable', 'Supply a meta description', '150–160 characters.');
+    if (structure.faq) {
+      check('faq', 'structure',
+        structure.faqQuestions ? 'FAQ section with at least ' + structure.faqQuestions + ' questions' : 'Include an FAQ section', '');
+    }
+    if (structure.metaDescription) {
+      check('meta', 'deliverable', 'Supply a meta description',
+        structure.metaMaxChars ? 'No more than ' + structure.metaMaxChars + ' characters.' : '150–160 characters.');
+    }
+    if (structure.titleMaxChars) {
+      check('title-length', 'structure', 'Title of no more than ' + structure.titleMaxChars + ' characters', 'Counted from the H1.');
+    }
+    if (structure.sectionMaxWords) {
+      check('section-length', 'structure', 'No section longer than ' + structure.sectionMaxWords + ' words',
+        'Measured between subheadings.');
+    }
     if (structure.titleOptions) check('titles', 'deliverable', 'Supply ' + structure.titleOptions + ' headline options', '');
     if (structure.table) check('table', 'structure', 'Include a table', '');
     if (structure.bullets) check('bullets', 'structure', 'Include bulleted lists', '');
@@ -626,7 +688,10 @@ window.FW = window.FW || {};
     if (structure.images) check('images', 'deliverable', 'Supply or specify images',
       (structure.imageSize ? 'Feature image ' + structure.imageSize + '. ' : '') + 'Use the royalty-free finder and log the licence.');
     if (structure.quotes) check('quotes', 'structure', 'Include quotes or expert comment', '');
-    if (structure.links) check('links', 'structure', 'Include at least ' + structure.links + ' links', '');
+    if (structure.links) {
+      check('links', 'structure',
+        'Include at least ' + structure.links + (structure.linksInternal ? ' internal links' : ' links'), '');
+    }
     if (structure.externalLinks) {
       check('extlinks', 'structure',
         (structure.keywordLinks ? 'Link the keyword out to an authoritative source' : 'Link out to an authoritative source') +
@@ -713,7 +778,11 @@ window.FW = window.FW || {};
         if (atCeiling.length) {
           var fit = atCeiling[0];
           var span = fit.maxWords - fit.minWords;
-          if (fit.uses > 1 || span < meta.wordCount.max * 0.15) {
+          /* Needing several mentions is not itself a problem — at 1,800 words a
+             keyword lands five times across a 981-word window, which is no
+             constraint at all. Narrowness is the thing worth raising before
+             drafting, so let that decide alone. */
+          if (span < meta.wordCount.max * 0.15) {
             gaps.push('“' + k.term + '” needs ' + fit.uses + ' mention' + (fit.uses === 1 ? '' : 's') +
               ' at this length, and only works between ' + fit.minWords + ' and ' + fit.maxWords +
               ' words — a ' + (span + 1) + '-word target. Plan the length before drafting.');

@@ -942,6 +942,39 @@ window.FW = window.FW || {};
     return [{ start: m.index, end: text.length }];
   }
 
+  /* A section runs from one heading to the next. Long-form briefs cap section
+     length so a reader can skim; nothing shorter than 1,000 words ever has. */
+  function longestSection() {
+    if (!refs.editor) return { words: 0, heading: '' };
+    var best = { words: 0, heading: '' };
+    var current = { words: 0, heading: '' };
+    Array.prototype.forEach.call(refs.editor.children, function (node) {
+      if (/^H[1-3]$/.test(node.tagName)) {
+        if (current.words > best.words) best = current;
+        current = { words: 0, heading: node.textContent.trim() };
+      } else {
+        current.words += U.wordCount(node.textContent || '');
+      }
+    });
+    if (current.words > best.words) best = current;
+    return best;
+  }
+
+  /* Questions inside the FAQ block, which ends at the next plain H2 so a
+     reference list underneath it is not counted as an answer. */
+  function faqQuestions() {
+    if (!refs.editor) return 0;
+    var inFaq = false, count = 0;
+    Array.prototype.forEach.call(refs.editor.children, function (node) {
+      var t = (node.textContent || '').trim();
+      var isHeading = /^H[1-3]$/.test(node.tagName);
+      if (isHeading && /\bfaqs?\b|frequently asked/i.test(t)) { inFaq = true; return; }
+      if (inFaq && node.tagName === 'H2' && t.indexOf('?') === -1) { inFaq = false; return; }
+      if (inFaq) count += (t.match(/\?/g) || []).length;
+    });
+    return count;
+  }
+
   function evaluate(analysis, text) {
     var out = [];
     var fullText = text;
@@ -1017,8 +1050,10 @@ window.FW = window.FW || {};
         case 'reading': {
           var target = analysis.meta.readingLevel;
           var grade = lastResult ? lastResult.stats.grade : null;
+          var ceiling = analysis.meta.readingLevelCeiling;
+          var meets = ceiling ? grade <= target + 0.5 : Math.abs(grade - target) <= 1.5;
           out.push({
-            label: c.label, status: grade === null ? 'manual' : Math.abs(grade - target) <= 1.5 ? 'pass' : 'warn',
+            label: c.label, status: grade === null ? 'manual' : meets ? 'pass' : 'warn',
             detail: grade === null ? '' : 'currently grade ' + grade.toFixed(1)
           });
           break;
@@ -1044,8 +1079,38 @@ window.FW = window.FW || {};
           } else if (/subheading/i.test(c.label)) {
             var need = analysis.meta.structure.sections || 0;
             out.push({ label: c.label, status: headings >= need ? 'pass' : 'warn', detail: headings + ' of ' + need + ' in the draft' });
+          } else if (/^Title of no more than/i.test(c.label)) {
+            var maxChars = analysis.meta.structure.titleMaxChars || 60;
+            var h1 = refs.editor ? refs.editor.querySelector('h1') : null;
+            var titleText = h1 ? h1.textContent.trim() : '';
+            out.push({
+              label: c.label,
+              status: !titleText ? 'fail' : titleText.length <= maxChars ? 'pass' : 'warn',
+              detail: titleText ? titleText.length + ' of ' + maxChars + ' characters' : 'no H1 in the draft'
+            });
+          } else if (/^No section longer than/i.test(c.label)) {
+            var cap = analysis.meta.structure.sectionMaxWords || 0;
+            var longest = longestSection();
+            out.push({
+              label: c.label,
+              status: !longest.words ? 'manual' : longest.words <= cap ? 'pass' : 'warn',
+              detail: longest.words
+                ? 'longest is ' + longest.words + ' words' + (longest.heading ? ' under “' + longest.heading + '”' : '')
+                : ''
+            });
           } else if (/FAQ/i.test(c.label)) {
-            out.push({ label: c.label, status: /\bfaq\b|frequently asked/i.test(lower) ? 'pass' : 'fail', detail: '' });
+            var hasFaq = /\bfaqs?\b|frequently asked/i.test(lower);
+            var wantQ = analysis.meta.structure.faqQuestions || 0;
+            if (!wantQ) {
+              out.push({ label: c.label, status: hasFaq ? 'pass' : 'fail', detail: '' });
+            } else {
+              var askedQ = faqQuestions();
+              out.push({
+                label: c.label,
+                status: !hasFaq ? 'fail' : askedQ >= wantQ ? 'pass' : 'warn',
+                detail: askedQ + ' of ' + wantQ + ' questions in the FAQ block'
+              });
+            }
           } else if (/call to action/i.test(c.label)) {
             out.push({ label: c.label, status: /\b(sign up|get started|try |download|contact|book a|learn more|calculator|subscribe)\b/i.test(lower) ? 'pass' : 'warn', detail: 'looking for an explicit next step' });
           } else if (/table/i.test(c.label)) {
@@ -1054,8 +1119,17 @@ window.FW = window.FW || {};
             out.push({ label: c.label, status: refs.editor.querySelector('ul, ol') ? 'pass' : 'fail', detail: '' });
           } else if (/links/i.test(c.label)) {
             var need2 = analysis.meta.structure.links || 0;
-            var have = refs.editor.querySelectorAll('a[href]').length;
-            out.push({ label: c.label, status: have >= need2 ? 'pass' : 'warn', detail: have + ' of ' + need2 });
+            var anchors = Array.prototype.slice.call(refs.editor.querySelectorAll('a[href]'));
+            /* A brief asking for internal links means links into the client's
+               own site, so an outbound citation does not count toward them. */
+            var wantInternal = analysis.meta.structure.linksInternal;
+            var counted = wantInternal
+              ? anchors.filter(function (a) { return !/^(?:https?:|mailto:)/i.test(a.getAttribute('href') || ''); })
+              : anchors;
+            out.push({
+              label: c.label, status: counted.length >= need2 ? 'pass' : 'warn',
+              detail: counted.length + ' of ' + need2 + (wantInternal ? ' internal (' + anchors.length + ' links in all)' : '')
+            });
           } else if (/^Link (?:the keyword )?out/i.test(c.label)) {
             var wantsKeyword = /the keyword/i.test(c.label);
             var need4 = (analysis.meta.structure.externalLinks) || 1;
