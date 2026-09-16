@@ -282,6 +282,25 @@ window.FW = window.FW || {};
       '<w:t xml:space="preserve">' + xmlEscape(text) + '</w:t></w:r>';
   }
 
+  var DATA_URL = /^data:image\/(png|jpe?g|gif|bmp|webp);base64,([A-Za-z0-9+/=\s]+)$/i;
+
+  /* A pasted image arrives as a data URL, which is the only kind whose bytes
+     are available without a network round trip from a file:// page. */
+  function dataUrlBytes(src) {
+    var m = DATA_URL.exec(String(src || '').trim());
+    if (!m) return null;
+    var ext = m[1].toLowerCase();
+    if (ext === 'jpg') ext = 'jpeg';
+    try {
+      var binary = atob(m[2].replace(/\s+/g, ''));
+      var bytes = new Uint8Array(binary.length);
+      for (var i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      return { ext: ext === 'jpeg' ? 'jpg' : ext, data: bytes };
+    } catch (e) {
+      return null;
+    }
+  }
+
   function para(content, style, extra) {
     return '<w:p><w:pPr>' + (style ? '<w:pStyle w:val="' + style + '"/>' : '') + (extra || '') + '</w:pPr>' + content + '</w:p>';
   }
@@ -289,11 +308,12 @@ window.FW = window.FW || {};
   /* A link rendered as blue underlined text is not a link. Word carries the
      destination in a package relationship, so an <a href> has to add one — a
      brief that requires an outbound link is not satisfied by the styling. */
-  function htmlToDocxBody(html, links) {
+  function htmlToDocxBody(html, links, media) {
     var div = document.createElement('div');
     div.innerHTML = html || '';
     var out = [];
     links = links || [];
+    media = media || [];
 
     function linkId(href) {
       for (var i = 0; i < links.length; i++) if (links[i].href === href) return links[i].id;
@@ -312,17 +332,21 @@ window.FW = window.FW || {};
       var h = tag.match(/^h([1-6])$/);
       if (h) { out.push(para(runs(node, { bold: false }), 'Heading' + h[1])); return; }
       if (tag === 'p') { out.push(para(runs(node, {}))); return; }
-      if (tag === 'ul' || tag === 'ol') {
-        Array.prototype.forEach.call(node.children, function (li) {
-          out.push(para(runs(li, {}), tag === 'ul' ? 'ListBullet' : 'ListNumber',
-            '<w:numPr><w:ilvl w:val="0"/><w:numId w:val="' + (tag === 'ul' ? 1 : 2) + '"/></w:numPr>'));
-        });
+      if (tag === 'ul' || tag === 'ol') { emitList(node, 0); return; }
+      if (tag === 'blockquote') { out.push(para(runs(node, { italic: true }), 'Quote')); return; }
+      /* Every line of a code block collapsed onto one. The whole point of the
+         element is where the breaks fall. */
+      if (tag === 'pre') {
+        var lines = String(node.textContent).replace(/\s+$/, '').split('\n');
+        out.push(para(lines.map(function (line, i) {
+          return (i ? '<w:r><w:br/></w:r>' : '') + runXml(line, { mono: true });
+        }).join('')));
         return;
       }
-      if (tag === 'blockquote') { out.push(para(runs(node, { italic: true }), 'Quote')); return; }
       if (tag === 'hr') { out.push('<w:p><w:pPr><w:pBdr><w:bottom w:val="single" w:sz="6" w:space="1" w:color="auto"/></w:pBdr></w:pPr></w:p>'); return; }
       if (tag === 'br') { out.push(para('<w:r><w:br/></w:r>')); return; }
       if (tag === 'table') { tableXml(node); return; }
+      if (tag === 'img') { out.push(imageXml(node)); return; }
       if (tag === 'div' || tag === 'section' || tag === 'article') {
         if (Array.prototype.some.call(node.childNodes, function (c) {
           return c.nodeType === 1 && /^(p|h[1-6]|ul|ol|blockquote|div|table|hr)$/.test(c.tagName.toLowerCase());
@@ -334,6 +358,62 @@ window.FW = window.FW || {};
         return;
       }
       out.push(para(runs(node, {})));
+    }
+
+    /* An <img> matched nothing in the walk and fell through to a paragraph of
+       its text content, which an image has none of. Every brief on this desk
+       asks for a feature image, and each one left without a trace: no picture,
+       no alt text, no source for the client to go and find.
+
+       A data URL carries its own bytes, so it can be embedded properly. A
+       remote one cannot be fetched from here, so it becomes a line naming the
+       image and where it lives. Neither is silent. */
+    var EMU_PER_PX = 9525;
+    var MAX_WIDTH_PX = 624;
+
+    function imageXml(node) {
+      var src = node.getAttribute('src') || '';
+      var alt = (node.getAttribute('alt') || '').trim();
+      var bytes = dataUrlBytes(src);
+      if (!bytes) {
+        return para(runXml('[Image' + (alt ? ': ' + alt : '') + ']' + (src ? ' \u2014 ' + src : ''), { italic: true }));
+      }
+      var w = Number(node.getAttribute('width')) || node.naturalWidth || 480;
+      var h = Number(node.getAttribute('height')) || node.naturalHeight || Math.round(w * 0.625);
+      if (w > MAX_WIDTH_PX) { h = Math.round(h * (MAX_WIDTH_PX / w)); w = MAX_WIDTH_PX; }
+      var id = media.length + 1;
+      var name = 'image' + id + '.' + bytes.ext;
+      media.push({ id: 'rIdI' + id, name: name, ext: bytes.ext, data: bytes.data });
+      var cx = Math.max(1, Math.round(w * EMU_PER_PX)), cy = Math.max(1, Math.round(h * EMU_PER_PX));
+      return '<w:p><w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0">' +
+        '<wp:extent cx="' + cx + '" cy="' + cy + '"/><wp:docPr id="' + id + '" name="Picture ' + id +
+        '" descr="' + xmlEscape(alt) + '"/>' +
+        '<a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">' +
+        '<a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">' +
+        '<pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">' +
+        '<pic:nvPicPr><pic:cNvPr id="' + id + '" name="' + xmlEscape(name) + '" descr="' + xmlEscape(alt) + '"/>' +
+        '<pic:cNvPicPr/></pic:nvPicPr>' +
+        '<pic:blipFill><a:blip r:embed="rIdI' + id + '"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>' +
+        '<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="' + cx + '" cy="' + cy + '"/></a:xfrm>' +
+        '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic>' +
+        '</a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>';
+    }
+
+    /* A list inside a list item is its own run of paragraphs. Rendering the
+       item whole ran the nested text straight onto the end of its parent
+       ("Second bulletA nested bullet") and lost one bullet entirely. */
+    function emitList(list, level) {
+      var ordered = list.tagName.toLowerCase() === 'ol';
+      Array.prototype.forEach.call(list.children, function (li) {
+        if (li.tagName.toLowerCase() !== 'li') return;
+        var nested = Array.prototype.filter.call(li.children, function (c) {
+          return /^(?:ul|ol)$/i.test(c.tagName);
+        });
+        nested.forEach(function (n) { li.removeChild(n); });
+        out.push(para(runs(li, {}), ordered ? 'ListNumber' : 'ListBullet',
+          '<w:numPr><w:ilvl w:val="' + Math.min(level, 8) + '"/><w:numId w:val="' + (ordered ? 2 : 1) + '"/></w:numPr>'));
+        nested.forEach(function (n) { emitList(n, level + 1); });
+      });
     }
 
     function tableXml(table) {
@@ -374,7 +454,9 @@ window.FW = window.FW || {};
      fixed sizes, so 14pt body copy does not end up with 20pt headings. */
   var DOCX_DEFAULT_FONT = 'Georgia';
   var DOCX_DEFAULT_PT = 12;
-  var HEADING_SCALE = { 1: 1.67, 2: 1.33, 3: 1.17, 4: 1.08 };
+  /* walk() emits Heading1 through Heading6, so all six need a style. An h5
+     referenced a style the package never defined and arrived as body text. */
+  var HEADING_SCALE = { 1: 1.67, 2: 1.33, 3: 1.17, 4: 1.08, 5: 1, 6: 1 };
 
   function halfPoints(pt) {
     var n = Math.round(Number(pt) * 2);
@@ -401,7 +483,7 @@ window.FW = window.FW || {};
     '<w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="' + xmlEscape(font) + '" w:hAnsi="' + xmlEscape(font) +
     '" w:cs="' + xmlEscape(font) + '"/><w:sz w:val="' + body + '"/><w:szCs w:val="' + body + '"/></w:rPr></w:rPrDefault>' +
     '<w:pPrDefault><w:pPr><w:spacing w:after="180" w:line="300" w:lineRule="auto"/></w:pPr></w:pPrDefault></w:docDefaults>' +
-    [1, 2, 3, 4].map(function (n) {
+    [1, 2, 3, 4, 5, 6].map(function (n) {
       var size = Math.round(body * HEADING_SCALE[n] / 2) * 2;
       return '<w:style w:type="paragraph" w:styleId="Heading' + n + '"><w:name w:val="heading ' + n + '"/>' +
         '<w:basedOn w:val="Normal"/><w:pPr><w:keepNext/><w:spacing w:before="320" w:after="140"/><w:outlineLvl w:val="' + (n - 1) + '"/></w:pPr>' +
@@ -434,10 +516,16 @@ window.FW = window.FW || {};
     var font = meta.docxFont || (meta.fontStack ? docxFamily(meta.fontStack) : DOCX_DEFAULT_FONT);
     var pt = meta.docxSize || DOCX_DEFAULT_PT;
     var links = [];
-    var body = htmlToDocxBody(html, links);
+    var media = [];
+    var body = htmlToDocxBody(html, links, media);
     var document_xml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
       '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"' +
-      ' xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">' +
+      ' xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"' +
+      /* An inline picture is DrawingML inside WordprocessingML, so the drawing
+         namespaces have to be declared on the document as well. */
+      ' xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"' +
+      ' xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"' +
+      ' xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">' +
       '<w:body>' + body +
       '<w:sectPr><w:pgSz w:w="11906" w:h="16838"/>' +
       '<w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="708" w:footer="708" w:gutter="0"/>' +
@@ -447,6 +535,12 @@ window.FW = window.FW || {};
       '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
       '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>' +
       '<Default Extension="xml" ContentType="application/xml"/>' +
+      media.filter(function (m, i, all) {
+        return all.findIndex(function (x) { return x.ext === m.ext; }) === i;
+      }).map(function (m) {
+        var type = m.ext === 'jpg' ? 'jpeg' : m.ext;
+        return '<Default Extension="' + xmlEscape(m.ext) + '" ContentType="image/' + xmlEscape(type) + '"/>';
+      }).join('') +
       '<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>' +
       '<Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>' +
       '<Override PartName="/word/numbering.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml"/>' +
@@ -468,6 +562,11 @@ window.FW = window.FW || {};
           '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="' +
           xmlEscape(l.href) + '" TargetMode="External"/>';
       }).join('') +
+      media.map(function (m) {
+        return '<Relationship Id="' + xmlEscape(m.id) +
+          '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/' +
+          xmlEscape(m.name) + '"/>';
+      }).join('') +
       '</Relationships>';
 
     var core = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
@@ -487,7 +586,9 @@ window.FW = window.FW || {};
       { name: 'word/_rels/document.xml.rels', data: docRels },
       { name: 'word/styles.xml', data: docxStyles(font, pt) },
       { name: 'word/numbering.xml', data: DOCX_NUMBERING }
-    ]);
+    ].concat(media.map(function (m) {
+      return { name: 'word/media/' + m.name, data: m.data };
+    })));
   }
 
   /* ============ PDF via the browser print dialog ============ */
