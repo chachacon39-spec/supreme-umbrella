@@ -252,7 +252,14 @@ window.FW = window.FW || {};
       if (tag === 'a') {
         var href = child.getAttribute('href') || '';
         props.link = true;
-        if (/^(?:https?:|mailto:)/i.test(href)) {
+        /* A relative path is how a writer points at another post on the
+           client's blog, and briefs ask for those by the pair. Only absolute
+           URLs became real hyperlinks, so an internal link arrived as plain
+           words with its destination gone — while the compliance panel went on
+           counting it. A requirement reported as met that the delivered file
+           did not meet is worse than one reported as missing. */
+        var linkable = href && !/^\s*javascript:/i.test(href) && href.charAt(0) !== '#';
+        if (linkable) {
           out.push('<w:hyperlink r:id="' + xmlEscape(linkRef(href)) + '">' + runs(child, props) + '</w:hyperlink>');
           return;
         }

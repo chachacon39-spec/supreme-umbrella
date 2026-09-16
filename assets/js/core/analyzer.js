@@ -889,9 +889,19 @@ window.FW = window.FW || {};
       }
       (grams[key] = grams[key] || []).push({ start: slice[0].start, end: slice[2].end });
     }
+    /* Repetition reads as padding when it is close together. In 300 words the
+       whole piece is close together, which is why a flat "twice anywhere"
+       worked until now; across 1,500 words it means a technical term may be
+       used once and never again. Ask for two uses inside a window instead. */
+    var NEAR = 1500;
     Object.keys(grams).forEach(function (key) {
       var hits = grams[key];
       if (hits.length < 2) return;
+      var near = false;
+      for (var h = 1; h < hits.length && !near; h++) {
+        if (hits[h].start - hits[h - 1].start <= NEAR) near = true;
+      }
+      if (!near) return;
       /* "Feature dish" on each of four restaurants repeats because the brief
          says so. A phrase made only of words the brief requires is the
          assignment, not padding. */
