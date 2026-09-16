@@ -13,20 +13,25 @@ var { createSuite } = require('./harness');
 var APP_URL = 'file://' + path.join(__dirname, '..', 'index.html');
 
 var CLIENT_BRIEF = [
-  'Task #472 Content Guidelines',
-  'Marketing Blog Content',
-  '',
-  '* These tasks are content for a blog related to the marketing/market research sector',
-  '* Each piece of content should be no longer than 300 words',
-  '* Content should insert any keywords mentioned at a density of 1% throughout the content',
-  '* The keyword should link to an outside relevant article on an authoritative website at least once (please see [link](https://moz.com/top500) for examples of authoritative websites)',
-  '* Content should include an introductory heading in bold (as well as bolded subheadings whenever possible)',
-  '* Content should include 1 royalty-free hi-res feature image (dimensions 500 x 800 px) as well as two smaller royalty-free images inserted throughout the text',
-  '* Content should include at least 2 APA or AMA-style citations at the end of the content with at least one direct reference to each citation throughout the content. Citations do not count toward the total word count of the piece',
-  '* The tone of this content should be professional yet engaging, speaking directly to the reader',
-  '* Content should be submitted in .docx or .doc format, font size 14, font family Calibri',
-  '',
-  'Task #472-A - (300 words) Blog post comparing 2 companies or service providers that offer online market research technology and data management services for medium to large companies. Keywords: online marketing companies 2026, online market research companies 2026'
+  "Task #472 Content Guidelines",
+  "Marketing Blog Content",
+  "",
+  "",
+  "* These tasks are content for a blog related to the marketing/market research sector",
+  "* Each piece of content should be no longer than 300 words",
+  "* Each piece should include an SEO-friendly engaging title",
+  "* Content should insert any keywords mentioned at a density of 1% throughout the content",
+  "* The keyword should link to an outside relevant article on an authoritative website at least once (please see [link](https://moz.com/top500) for examples of authoritative websites)",
+  "* Content should include an introductory heading in bold (as well as bolded subheadings whenever possible)",
+  "* Each section or paragraph of content should include no more than 5 lines of text before inserting a line space",
+  "* Content should include 1 royalty-free hi-res feature image (dimensions 500 x 800 px) as well as two smaller royalty-free images inserted throughout the text",
+  "* Content should include at least 2 APA or AMA-style citations at the end of the content with at least one direct reference to each citation throughout the content (either APA or AMA is acceptable as long as all citations follow the same format). Citations do not count toward the total word count of the piece",
+  "* Content should be unique, well-researched and provide value beyond content that is already available online or in other sources",
+  "* The tone of this content should be professional yet engaging, speaking directly to the reader",
+  "* Content should be submitted in .docx or .doc format, font size 14, font family Calibri",
+  "",
+  "",
+  "Task #472-A - (300 words) Blog post comparing 2 companies or service providers that offer online market research technology and data management services for medium to large companies. Blog post should be relevant to the 2026 market landscape as well as discussing the most recent offerings/services of both companies. Keywords: online marketing companies 2026, online market research companies 2026"
 ].join('\n');
 
 var TASK_TITLE = 'Task #472-A — (300 words) Online market research providers compared';
@@ -92,6 +97,46 @@ async function run() {
       /* Five words used once in 300 is 1.67%. No draft can satisfy both rules. */
       t.ok(a.gaps.some(function (g) { return /contradicts itself/.test(g); }),
         'the impossible keyword-density rule is raised as a question for the client');
+    });
+
+    await t.section('the sentence the fixture used to drop', async function () {
+      var a = await page.evaluate(function (args) {
+        var r = FW.brief.analyze({ title: args.title, brief: args.brief });
+        return JSON.parse(JSON.stringify({ coverage: r.meta.coverage, items: r.meta.items }));
+      }, { title: TASK_TITLE, brief: CLIENT_BRIEF });
+      var coverage = a.coverage.join(' | ');
+
+      /* "Blog post should be relevant to the 2026 market landscape as well as
+         discussing the most recent offerings/services of both companies" is two
+         requirements, and neither reached the checklist. */
+      t.includes(coverage, 'relevant to the 2026 market landscape', 'the currency requirement is tracked');
+      t.includes(coverage, 'discussing the most recent offerings', 'and so is the recent-offerings one');
+      t.equal(a.items.count, 2, 'alongside the two companies to compare');
+
+      /* The guidelines say "as well as two smaller royalty-free images" and
+         "as well as bolded subheadings". Those are the client's house rules for
+         every piece, not requirements of this one, so the reader only looks at
+         the task line. */
+      t.notMatch(coverage, /royalty-free|bolded subheading/, 'house rules in the guidelines are not requirements of this piece');
+    });
+
+    await t.section('as-well-as on the briefs that already worked', async function () {
+      var other = await page.evaluate(function () {
+        function cov(title, brief) {
+          return FW.brief.analyze({ title: title, brief: brief }).meta.coverage;
+        }
+        return JSON.parse(JSON.stringify({
+          benchmark: cov('Task - (400 words) Electric cars under thirty thousand',
+            'Task #474-D - (400 words) Blog post covering 3 electric car models, as well as a brief comparison of each model to the Tesla Model 3.'),
+          including: cov('Task - (300 words) Drone legislation',
+            'Task #480-A - (300 words) Blog post including how these incorporate drones, as well as a comparison to the differences in legislation prior to the 2026 updates.')
+        }));
+      });
+      /* "a brief comparison of each model to the Tesla Model 3" is already on
+         the list as "Tesla Model 3"; the longer wrapper adds nothing. */
+      t.includes(other.benchmark, 'Tesla Model 3', 'the benchmark is still the point');
+      t.equal(other.benchmark.length, 1, 'and it is not listed twice in two wordings');
+      t.equal(other.including.length, 2, 'an "including" clause still yields its own points');
     });
 
     await t.section('drafting and checking', async function () {

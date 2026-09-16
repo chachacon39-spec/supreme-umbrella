@@ -1,0 +1,17 @@
+Task #491 Content Guidelines
+Vocational/Job Training Blog Content
+
+* These tasks are content for a blog related to the Vocational/Job Training sector
+* Each piece of content should be no longer than 300 words
+* Each piece should include an SEO-friendly engaging title
+* Content should insert any keywords mentioned at a density of 2% throughout the content
+* The keyword should link to an outside relevant article on an authoritative website at least once (please see [link](https://moz.com/top500) for examples of authoritative websites)
+* Content should include an introductory heading in bold (as well as bolded subheadings whenever possible)
+* Each section or paragraph of content should include no more than 5 lines of text before inserting a line space
+* Content should include 1 royalty-free hi-res feature image (dimensions 600 x 600 px) as well as two smaller royalty-free images inserted throughout the text
+* Content should include at least 2 APA or AMA-style citations at the end of the content with at least one direct reference to each citation throughout the content (either APA or AMA is acceptable as long as all citations follow the same format). Citations do not count toward the total word count of the piece
+* Content should be unique, well-researched and provide value beyond content that is already available online or in other sources
+* The tone of this content should be professional yet engaging, speaking directly to the reader
+* Content should be submitted in .docx or .doc format, font size 14, font family Calibri
+
+Task #491-E - (300 words) Blog post that provides a brief description and breakdown of the state requirements for Home Health Aide certification training programs in Illinois. Please also provide a brief breakdown of 3 state-approved or accredited HHA certification training programs. Keywords: Illinois HHA training programs 2026, Illinois Home Health Aide certification 2026

@@ -507,6 +507,31 @@ window.FW = window.FW || {};
     matchAll(/\band how (?:they|these|it|this|the\s+\w+)\s+(?:(?:may|might|could|will|can|would|are|is|was|were|have|has|had|do|does|did)\s+)*([\w\s-]{4,60}?)(?=[,.]|\s+(?:in|for|that|which)\b|$)/gi, text)
       .forEach(function (hit) { points.push(hit[1].replace(/\s+/g, ' ').trim()); });
 
+    /* The task line states requirements the standing guidelines never do, and
+       two shapes of it went untracked: "should be relevant to X" and a plain
+       "as well as Y" that is not hanging off an "including" clause.
+
+       Both are read from the task line alone. The guidelines say "as well as
+       two smaller royalty-free images" and "as well as bolded subheadings",
+       which are the client's house rules, not this piece's requirements. */
+    var taskLines = String(text).split('\n').filter(function (line) { return /^\s*task\s*#/i.test(line); });
+    var taskLine = taskLines.length ? taskLines[taskLines.length - 1] : '';
+    if (taskLine) {
+      var relevant = taskLine.match(/\bshould (?:also\s+)?be\s+(relevant to [\w\s'’-]{4,50}?)(?=\s+as well as\b|[,.]|$)/i);
+      if (relevant) points.push(relevant[1].replace(/\s+/g, ' ').trim());
+
+      matchAll(/\bas well as\s+(?:a|an|the)?\s*([\w][\w\s\/'’-]{4,70}?)(?=[,.]|\s+(?:for|that|which)\b|$)/gi, taskLine)
+        .forEach(function (hit) {
+          var candidate = hit[1].replace(/\s+/g, ' ').trim();
+          /* "a brief comparison of each model to the Tesla Model 3" is already
+             on the list as "Tesla Model 3". The longer wrapper adds nothing. */
+          var covered = points.some(function (existing) {
+            return existing && candidate.toLowerCase().indexOf(existing.toLowerCase()) !== -1;
+          });
+          if (!covered) points.push(candidate);
+        });
+    }
+
     var m = text.match(/\bincluding\s+([^.\n]{4,160})/i);
     if (!m) return U.unique(points).slice(0, 6);
     return U.unique(points.concat(m[1].split(/\s*,\s*|\s+as well as\s+|\s+and\s+/i).map(function (part) {

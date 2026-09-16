@@ -1,0 +1,16 @@
+Task #465 Content Guidelines
+Business Blog Content
+
+* These tasks are content for a blog related to the b2b sector
+* Each piece of content should be no longer than 325 words
+* Each piece should include an SEO-friendly engaging title
+* Content should insert any keywords mentioned at a density of 2% throughout the content
+* Content should include an introductory heading in bold (as well as bolded subheadings whenever possible)
+* Each section or paragraph of content should include no more than 5 lines of text before inserting a line space
+* Content should include 1 royalty-free hi-res feature image (dimensions 500 x 600 px) as well as two smaller royalty-free images inserted throughout the text
+* Content should include at least 2 APA or AMA-style citations at the end of the content with at least one direct reference to each citation throughout the content (either APA or AMA is acceptable as long as all citations follow the same format). Citations do not count toward the total word count of the piece
+* Content should be unique, well-researched and provide value beyond content that is already available online or in other sources
+* The tone of this content should be professional yet engaging, speaking directly to the reader
+* Content should be submitted in .docx or .doc format, font size 14, font family Calibri
+
+Task #465-A - (325 words) Blog post covering 3 new B2B product offerings or services from Google for the 2026 year and how they may impact the current market for these products and services. Keywords: Google B2B products 2026, Google B2B services 2026
