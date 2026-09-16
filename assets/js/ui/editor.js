@@ -1222,6 +1222,23 @@ window.FW = window.FW || {};
           out.push({ label: c.label, status: 'manual', detail: c.detail });
           break;
         case 'deliverable':
+          if (/images/i.test(c.label)) {
+            /* The panel measures the editor and the client receives the export,
+               so say here what the export will do with what is on the page: a
+               pasted image travels inside the file, a linked one can only be
+               named for whoever places it. */
+            var imgs = refs.editor ? Array.prototype.slice.call(refs.editor.querySelectorAll('img')) : [];
+            var embedded = imgs.filter(function (im) { return /^data:image\//i.test(im.getAttribute('src') || ''); }).length;
+            var linked = imgs.length - embedded;
+            out.push({
+              label: c.label, status: 'manual',
+              detail: imgs.length
+                ? imgs.length + ' in the draft: ' + embedded + ' travel inside the .docx, ' +
+                  linked + ' listed by name and URL for the client to place. ' + c.detail
+                : c.detail
+            });
+            break;
+          }
           out.push({ label: c.label, status: 'manual', detail: c.detail });
           break;
         default:
