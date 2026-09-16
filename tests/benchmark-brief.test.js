@@ -90,8 +90,16 @@ async function run() {
     await t.section('the same shape in other briefs', async function () {
       var found = await page.evaluate(function () {
         return {
-          salesforce: FW.brief.analyze({
-            title: '',
+          /* The "compare each of them to X" phrasing, with a benchmark that is
+             not what the piece is about. */
+          named: FW.brief.analyze({
+            title: 'Task - (300 words) Project management tools for agencies',
+            brief: 'Please discuss at least 3 other competitors or alternatives in this space and compare each of them to Asana.'
+          }).meta.coverage,
+          /* The same phrasing where the benchmark IS the subject. A check the
+             draft cannot fail is not worth a line on the checklist. */
+          selfBenchmark: FW.brief.analyze({
+            title: 'Task #462-B - (300 words) How Salesforce leads SaaS',
             brief: 'Please discuss at least 3 other competitors or alternatives in this space and compare each of them to Salesforce.'
           }).meta.coverage,
           none: FW.brief.analyze({
@@ -100,7 +108,8 @@ async function run() {
           }).meta.coverage
         };
       });
-      t.includes(found.salesforce.join(' '), 'Salesforce', 'a benchmark stated as "compare each of them to X" is read too');
+      t.includes(found.named.join(' '), 'Asana', 'a benchmark stated as "compare each of them to X" is read too');
+      t.notIncludes(found.selfBenchmark.join(' '), 'Salesforce', 'unless the benchmark is the piece\u2019s own subject');
       t.equal(found.none.length, 0, 'and a brief naming no benchmark gets none invented');
     });
 

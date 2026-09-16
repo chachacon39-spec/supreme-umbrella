@@ -472,7 +472,9 @@ window.FW = window.FW || {};
 
   /* "including rates, course hours and course structure/overview" — three things
      the client will look for by name. */
-  function findCoveragePoints(text) {
+  function escapeRe(v) { return String(v).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+
+  function findCoveragePoints(text, topic) {
     var points = [];
     /* "at least one feature dish from each restaurant" states a per-item
        requirement without ever saying "including". */
@@ -488,13 +490,21 @@ window.FW = window.FW || {};
            label — "Tesla Model 3. Keywords". Cut at the sentence break. */
         var benchmark = hit[1].split(/\.\s/)[0].replace(/[.,;:]+$/, '').trim();
         /* A benchmark is a name. "each of them to the others" is not one. */
-        if (/[A-Z]/.test(benchmark)) points.push(benchmark);
+        if (!/[A-Z]/.test(benchmark)) return;
+        /* "compare each of them to Salesforce" names the piece's own subject.
+           A check the draft cannot fail tells the writer nothing, and it
+           crowds out the ones that can. */
+        if (topic && new RegExp('\\b' + escapeRe(benchmark) + '\\b', 'i').test(topic)) return;
+        points.push(benchmark);
       });
 
     /* "covering 3 new offerings ... and how they may impact the current market"
        — a second requirement per item, hung off the end of the sentence as a
        clause. It is the argument the client is paying for, not a detail. */
-    matchAll(/\band how (?:they|these|it|this|the\s+\w+)\s+(?:may|might|could|will|can|would)?\s*([\w\s-]{4,60}?)(?=[,.]|\s+(?:in|for|that|which)\b|$)/gi, text)
+    /* Without a modal to absorb, the capture began on the auxiliary and the
+       checklist read "are continuing to differentiate themselves". Consume the
+       whole verb run so the requirement starts where the content does. */
+    matchAll(/\band how (?:they|these|it|this|the\s+\w+)\s+(?:(?:may|might|could|will|can|would|are|is|was|were|have|has|had|do|does|did)\s+)*([\w\s-]{4,60}?)(?=[,.]|\s+(?:in|for|that|which)\b|$)/gi, text)
       .forEach(function (hit) { points.push(hit[1].replace(/\s+/g, ' ').trim()); });
 
     var m = text.match(/\bincluding\s+([^.\n]{4,160})/i);
@@ -610,7 +620,7 @@ window.FW = window.FW || {};
       keywordDensity: findKeywordDensity(normalized),
       items: findItemCount(normalized),
       balance: findBalance(normalized),
-      coverage: findCoveragePoints(normalized),
+      coverage: findCoveragePoints(normalized, String(task.title || '') + ' ' + findTopic(text, task.title)),
       /* Most academic-ish briefs exempt the reference list from the count, and a
          writer who trims real copy to make room for it has lost words for free. */
       countExcludesCitations: /(?:citations?|references?|sources?|bibliograph\w*)[^.\n]{0,60}?(?:do|does|are|is)\s*n[o']t\s*(?:count|included|included in)/i.test(normalized) ||
