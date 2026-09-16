@@ -369,9 +369,16 @@ window.FW = window.FW || {};
            opens on a subordinating conjunction, not a question word. The comma
            closing that first clause is what tells them apart. */
         var subordinateOpener = /^(?:when|where|while|how|why|as|after|before|since|once)\b[^,.?]{3,80},/i.test(s.text.trim());
+        /* "What people call certification is really a competency file." opens on
+           a wh-word but the clause is the sentence's subject, not a question.
+           A question puts its verb straight after the wh-word ("What is the
+           fee?"); a free relative puts a noun phrase there and saves the main
+           verb for later. */
+        var freeRelative = /^(?:what|who|whom|whose|which|where|when|how|why)(?:ever)?\s+(?!(?:is|are|was|were|do|does|did|can|could|should|would|will|shall|may|might|must|has|have|had|am)\b)\S+/i.test(s.text.trim())
+          && /\s(?:is|are|was|were)\s/i.test(s.text.trim().replace(/^\S+\s+/, ''));
         if (/^(who|what|when|where|why|how|is|are|do|does|did|can|could|should|would|will|have|has)\b/i.test(s.text)
           && /\.$/.test(s.text.trim()) && s.words > 3 && !/^how to\b/i.test(s.text)
-          && !subordinateOpener
+          && !subordinateOpener && !freeRelative
           && !inHeading(s.start, s.end)) {
           add({
             rule: 'missing-question-mark', type: 'punctuation', severity: 'warning',

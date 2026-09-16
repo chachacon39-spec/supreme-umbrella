@@ -57,6 +57,50 @@ var DRAFT = [
   "<p>California Department of Public Health. (2026). <em>Home health aide certification</em>. Aide and Technician Certification Section.</p>"
 ].join('\n');
 
+/* The sibling task: the same guidelines block, a different state, and a state
+ * whose answer is that the credential does not exist. Texas licenses the
+ * agency rather than the aide, so the piece leans on free relative clauses
+ * ("What people call certification is ...") that open on a question word. */
+var TEXAS_BRIEF = [
+  "Task #491 Content Guidelines",
+  "Vocational/Job Training Blog Content",
+  "",
+  "* These tasks are content for a blog related to the Vocational/Job Training sector",
+  "* Each piece of content should be no longer than 300 words",
+  "* Each piece should include an SEO-friendly engaging title",
+  "* Content should insert any keywords mentioned at a density of 2% throughout the content",
+  "* The keyword should link to an outside relevant article on an authoritative website at least once (please see [link](https://moz.com/top500) for examples of authoritative websites)",
+  "* Content should include an introductory heading in bold (as well as bolded subheadings whenever possible)",
+  "* Each section or paragraph of content should include no more than 5 lines of text before inserting a line space",
+  "* Content should include 1 royalty-free hi-res feature image (dimensions 600 x 600 px) as well as two smaller royalty-free images inserted throughout the text",
+  "* Content should include at least 2 APA or AMA-style citations at the end of the content with at least one direct reference to each citation throughout the content (either APA or AMA is acceptable as long as all citations follow the same format). Citations do not count toward the total word count of the piece",
+  "* Content should be unique, well-researched and provide value beyond content that is already available online or in other sources",
+  "* The tone of this content should be professional yet engaging, speaking directly to the reader",
+  "* Content should be submitted in .docx or .doc format, font size 14, font family Calibri",
+  "",
+  "Task #491-C - (300 words) Blog post that provides a brief description and breakdown of the state requirements for Home Health Aide certification training programs in Texas. Please also provide a brief breakdown of 3 state-approved or accredited HHA certification training programs. Keywords: Texas HHA training programs 2026, Texas Home Health Aide certification 2026"
+].join('\n');
+
+var TEXAS_TITLE = 'Task #491-C \u2014 (300 words) Texas HHA certification requirements';
+
+var TEXAS_DRAFT = [
+  "<h1>Texas Does Not Certify Home Health Aides. Here Is What It Requires Instead</h1>",
+  "<p><strong>The credential you are looking for does not exist</strong></p>",
+  "<p>Anyone searching <a href=\"https://www.hhs.texas.gov/\">Texas HHA training programs 2026</a> runs into the same surprise: the state keeps no aide registry and sets no aide exam. What people call Texas Home Health Aide certification 2026 is a competency file held by the agency that hires you.</p>",
+  "<p><strong>What the rules actually say</strong></p>",
+  "<p>Texas licenses the agency, not the aide. Home and Community Support Services Agencies operate under Health and Safety Code Chapter 142, and the aide qualifications in 26 Texas Administrative Code &sect; 558.701 point straight at the federal standard.</p>",
+  "<p>That standard is 75 hours of training, of which at least 16 must be supervised practical work, and 16 hours of instruction must come before an aide has direct patient contact (42 C.F.R. &sect; 484.80). A registered nurse runs that evaluation and signs it off. After that, 12 hours of in-service training are due every 12 months.</p>",
+  "<p><strong>Three accredited programs</strong></p>",
+  "<p><strong>Houston Community College.</strong> A roughly six-week course at an accredited public college, with clinical placement arranged locally.</p>",
+  "<p><strong>Austin Community College.</strong> Similar ground over about eight weeks, which suits students who want a slower classroom pace.</p>",
+  "<p><strong>Victoria College.</strong> A six-week option serving the Crossroads region, useful outside the big metros.</p>",
+  "<p><strong>Before you pay</strong></p>",
+  "<p>Ask one question: does this course meet the 75-hour federal standard and include the competency evaluation? A certificate that skips it will not satisfy a Texas employer.</p>",
+  "<h2>References</h2>",
+  "<p>42 C.F.R. &sect; 484.80 (2026). <em>Condition of participation: Home health aide services</em>.</p>",
+  "<p>26 Tex. Admin. Code &sect; 558.701 (2026). <em>Home health aide qualifications</em>.</p>"
+].join('\n');
+
 async function openApp(browser) {
   var page = await browser.newPage({ viewport: { width: 1500, height: 960 } });
   var errors = [];
@@ -259,6 +303,87 @@ async function run() {
       t.includes(bytes, 'cdph.ca.gov', 'the authoritative link survives');
       t.includes(bytes, '<w:hyperlink r:id=', 'as a real hyperlink');
     });
+
+    await t.section('a clause is not a question', async function () {
+      var checks = await page.evaluate(function () {
+        function n(text) {
+          return FW.analyzer.analyze(text, {}).issues.filter(function (i) { return i.rule === 'missing-question-mark'; }).length;
+        }
+        return {
+          subject: n('What people call Texas Home Health Aide certification 2026 is a competency file held by the agency.'),
+          where: n('Where the money actually goes is the question nobody asks.'),
+          how: n('How a school arranges clinical placement is worth asking about.'),
+          askCost: n('What is the total cost of the course.'),
+          askWho: n('Who signs off on the competency evaluation.'),
+          askDoes: n('Does the course include a competency evaluation.'),
+          subordinate: n('When first-year bonus depreciation is generous, a buyer can expense most of an asset at once.')
+        };
+      });
+      /* A question puts its verb straight after the wh-word; a free relative
+         puts a noun phrase there and saves the main verb for later. */
+      t.equal(checks.subject, 0, 'a wh-clause used as the subject is not a question');
+      t.equal(checks.where, 0, 'and again for "where"');
+      t.equal(checks.how, 0, 'and for "how"');
+      t.atLeast(checks.askCost, 1, 'a real question with the verb up front still reports');
+      t.atLeast(checks.askWho, 1, 'and one with no later copula to mislead it');
+      t.atLeast(checks.askDoes, 1, 'and an auxiliary opening');
+      t.equal(checks.subordinate, 0, 'the subordinate-opener guard still holds');
+    });
+
+    await t.section('the same brief, a different state', async function () {
+      await page.locator('.viewnav button', { hasText: 'Board' }).click();
+      await page.waitForTimeout(300);
+      await page.locator('.board-bar .btn-primary', { hasText: 'New assignment' }).click();
+      await page.waitForTimeout(300);
+      var inputs = page.locator('.modal input[type="text"]');
+      await inputs.nth(0).fill(TEXAS_TITLE);
+      await inputs.nth(1).fill('Portal client');
+      await page.locator('.modal textarea').fill(TEXAS_BRIEF);
+      await page.waitForTimeout(500);
+      await page.locator('.modal-foot .btn-primary', { hasText: 'Create & analyse' }).click();
+      await page.waitForTimeout(900);
+
+      var parsed = await page.evaluate(function (brief) {
+        var r = FW.brief.analyze({ title: 'Task #491-C', brief: brief });
+        return JSON.parse(JSON.stringify({ keywords: r.meta.keywords, items: r.meta.items, density: r.meta.keywordDensity }));
+      }, TEXAS_BRIEF);
+      /* The parse must not depend on which state the sentence names. */
+      t.equal(parsed.keywords.length, 2, 'the sibling brief reads both keywords too');
+      t.equal(parsed.keywords[0].term, 'Texas HHA training programs 2026', 'the first');
+      t.equal(parsed.items.count, 3, 'and the same programme count');
+      t.equal(parsed.density.max, 2.5, 'against the same band');
+
+      await page.locator('.style-card .btn', { hasText: 'Start draft' }).first().click();
+      await page.waitForTimeout(900);
+      var confirm = page.locator('.modal-foot .btn', { hasText: 'Replace draft' });
+      if (await confirm.count()) { await confirm.click(); await page.waitForTimeout(600); }
+
+      await page.evaluate(function (html) {
+        var ed = document.querySelector('.editor');
+        ed.innerHTML = html;
+        ed.dispatchEvent(new InputEvent('input', { bubbles: true }));
+      }, TEXAS_DRAFT);
+      await page.waitForTimeout(2000);
+
+      var compliance = await page.evaluate(function () {
+        var first = document.querySelector('.check-item');
+        return first && first.parentElement ? first.parentElement.innerText : '';
+      });
+      t.match(compliance, /2\.01% of 1\.5\u20132\.5%/, 'the five-word keyword lands in band');
+      t.match(compliance, /2\.41% of 1\.5\u20132\.5%/, 'and the six-word one');
+      t.match(compliance, /249 words so far \(references excluded\)/, 'the count leaves the references out');
+      t.match(compliance, /1 of 1 with the keyword as anchor text/, 'and the link is on a keyword');
+
+      var issueText = await page.evaluate(function () {
+        var host = document.querySelector('.issue-list');
+        return host ? host.innerText : '';
+      });
+      t.notMatch(issueText, /reads as a question/, 'the free relative draws no question finding');
+      t.notMatch(issueText, /lowercase letter/, 'and the C.F.R. citation none either');
+
+      t.equal(page.__errors.length, 0, 'no console errors: ' + page.__errors.join(' | '));
+    });
+
   } finally {
     await browser.close();
   }
