@@ -40,7 +40,7 @@ var DRAFT = [
   "<table><tr><th>Driver</th><th>Tactic</th></tr><tr><td>Onboarding</td><td>Activation event</td></tr><tr><td>Champion</td><td>Second contact</td></tr></table>",
   "<hr>",
   "<h4>A fourth-level heading</h4>",
-  "<pre>preformatted line one\\npreformatted line two</pre>",
+  '<pre>preformatted line one' + '\n' + 'preformatted line two</pre>',
   "<p>A line<br>broken by a break tag.</p>",
   "<img src=\"https://example.com/feature.png\" alt=\"The feature image\">",
   '<img src="data:image/png;base64,' + PNG_BASE64 + '" alt="An embedded chart" width="320" height="240">',
@@ -183,7 +183,11 @@ async function run() {
       t.equal(count(bytes, 'Target="mailto:'), dom.mailto, 'and the mailto target');
       /* Both lines of a code block collapsed onto one. */
       t.includes(bytes, 'preformatted line one', 'the code block text');
-      t.notIncludes(bytes, 'preformatted line one preformatted line two', 'keeps the break between its lines');
+      /* A literal backslash-n in the fixture would leave one line and nothing
+         to collapse, so check the break is really there rather than only that
+         the collapsed form is absent. */
+      t.includes(bytes, 'preformatted line one</w:t></w:r><w:r><w:br/></w:r>', 'keeps the break between its lines');
+      t.notIncludes(bytes, 'preformatted line one preformatted line two', 'and does not run them together');
     });
   } finally {
     await browser.close();
