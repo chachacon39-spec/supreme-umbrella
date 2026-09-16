@@ -10,11 +10,16 @@ window.FW = window.FW || {};
   var AN_BEFORE_CONSONANT = /^(hour|honest|honor|honour|heir|honest|herb|x-ray|f|h|l|m|n|r|s|x|mba|mri|nda|seo|sec|fbi|hr|llc|rn|sos|nhs)\b/i;
 
   /* Past participles that routinely act as adjectives after "be". */
+  /* Participles that describe what something IS rather than what was done to
+     it. "20 hours are supervised clinical experience" names a category, not an
+     action with a hidden actor. An explicit agent still reads as passive, and
+     still reports, because "by" is then the last word of the excerpt. */
   var ADJECTIVAL = ['interested', 'tired', 'excited', 'involved', 'concerned', 'committed',
     'supposed', 'aged', 'advanced', 'limited', 'complicated', 'detailed', 'dedicated',
     'experienced', 'qualified', 'talented', 'gifted', 'pleased', 'satisfied', 'worried',
     'surprised', 'confused', 'related', 'connected', 'married', 'closed', 'open', 'crowded',
-    'determined', 'prepared', 'skilled', 'suited', 'inclined', 'accustomed', 'delighted'];
+    'determined', 'prepared', 'skilled', 'suited', 'inclined', 'accustomed', 'delighted',
+    'supervised', 'accredited', 'certified', 'licensed', 'registered', 'approved'];
 
   var INCLUSIVE = [
     ['\\bguys\\b', 'everyone / the team', 'Gendered when addressing a mixed group.'],
@@ -269,9 +274,21 @@ window.FW = window.FW || {};
         'In formal prose, “try to”.', 'try to');
       rule('reason-is-because', 'grammar', 'warning', /\bthe reason (?:is|was) because\b/gi,
         'Redundant — “the reason is that”.', 'the reason is that');
-      rule('sentence-lowercase', 'grammar', 'warning', /[.!?]\s+([a-z])/g,
-        'Sentence starts with a lowercase letter.',
-        function (m) { return m[0].replace(m[1], m[1].toUpperCase()); });
+      /* An abbreviation's period is not a full stop, so the lowercase word
+         after it is not a sentence starting badly: "Cal. Code Regs. tit. 22"
+         is one citation. Briefs that ask for APA or AMA style guarantee these. */
+      /* The letters are optional: a sentence can end on a digit ("the fee is
+         $500. it is refundable"), and that still opens lowercase. */
+      scan(/([A-Za-z]*)[.!?]\s+([a-z])/g, function (m) {
+        if (U.isAbbrev(m[1])) return;
+        var at = m.index + m[0].length - m[2].length;
+        add({
+          rule: 'sentence-lowercase', type: 'grammar', severity: 'warning',
+          start: m.index + m[1].length, end: at + m[2].length,
+          message: 'Sentence starts with a lowercase letter.',
+          fix: m[0].slice(m[1].length).replace(m[2], m[2].toUpperCase())
+        });
+      });
 
       /* Possible comma splice: comma followed by a pronoun and a finite verb.
          A sentence that opens with a subordinating conjunction has a dependent
@@ -618,6 +635,10 @@ window.FW = window.FW || {};
         var exception = FILLER_EXCEPTIONS[String(f).toLowerCase()];
         scan(new RegExp('\\b' + escapeRe(f) + '\\b', 'gi'), function (m) {
           if (exception && exception.test(text.slice(m.index, m.index + 24))) return;
+          /* A headline is chosen word by word. "What California Actually
+             Requires" earns its adverb, and the other structural rules already
+             leave headings alone. */
+          if (inHeading(m.index, m.index + m[0].length)) return;
           add({
             rule: 'filler-' + idx, type: 'style', severity: 'suggestion',
             start: m.index, end: m.index + m[0].length,
@@ -801,6 +822,9 @@ window.FW = window.FW || {};
       var list = byWord[w];
       if (list.length < 3) return;
       /* three or more occurrences inside a 60-word window */
+      /* One flag per word. A second identical "appears 3+ times" on the same
+         word tells the writer nothing new, and word-overuse below already
+         reports the total across the piece. */
       for (var i = 2; i < list.length; i++) {
         var span = list[i].start - list[i - 2].start;
         if (span < 420) {
@@ -810,7 +834,7 @@ window.FW = window.FW || {};
             message: '“' + w + '” appears ' + 3 + '+ times in close succession. Vary it or restructure.',
             fix: null
           });
-          i += 2;
+          break;
         }
       }
       /* whole-document overuse */
@@ -841,7 +865,14 @@ window.FW = window.FW || {};
          "phrase" of single letters is an abbreviation taken apart, and a
          citation format repeating is not a writer padding. */
       if (slice.every(function (x) { return x.w.length === 1; })) continue;
-      var key = slice.map(function (x) { return x.w; }).join(' ');
+      /* The scanner reads letters only, so "at least 120 hours" and "at least
+         20 hours" both arrive as at/least/hours and collide. The digits sit in
+         the gaps between the words, so put them back into the key. */
+      var key = slice[0].w;
+      for (var g = 1; g < 3; g++) {
+        var nums = text.slice(slice[g - 1].end, slice[g].start).match(/\d+/g);
+        key += ' ' + (nums ? nums.join(' ') + ' ' : '') + slice[g].w;
+      }
       (grams[key] = grams[key] || []).push({ start: slice[0].start, end: slice[2].end });
     }
     Object.keys(grams).forEach(function (key) {

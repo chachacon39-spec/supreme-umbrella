@@ -131,7 +131,15 @@ window.FW = window.FW || {};
   function unique(arr) { return arr.filter(function (v, i) { return arr.indexOf(v) === i; }); }
 
   /* ---------- text ---------- */
-  var ABBREV = ['mr', 'mrs', 'ms', 'dr', 'prof', 'sr', 'jr', 'st', 'vs', 'etc', 'e.g', 'i.e', 'inc', 'ltd', 'co', 'fig', 'no', 'approx', 'dept', 'est'];
+  /* A citation is full of periods that are not full stops. "Cal. Code Regs.
+   * tit. 22, § 74747" is one reference, and a brief that asks for APA or AMA
+   * style guarantees the writer will produce several. */
+  var ABBREV = ['mr', 'mrs', 'ms', 'dr', 'prof', 'sr', 'jr', 'st', 'vs', 'etc', 'e.g', 'i.e', 'inc', 'ltd', 'co', 'fig', 'no', 'approx', 'dept', 'est',
+    'regs', 'tit', 'ed', 'eds', 'vol', 'pp', 'para', 'sec', 'cf', 'ibid', 'supp', 'cir', 'cal', 'stat', 'al', 'nos', 'ser'];
+
+  function isAbbrev(word) {
+    return ABBREV.indexOf(String(word || '').replace(/\.$/, '').toLowerCase()) !== -1;
+  }
 
   function splitSentences(text) {
     var out = [], buf = '', i = 0;
@@ -238,7 +246,7 @@ window.FW = window.FW || {};
     uid: uid, debounce: debounce, clamp: clamp, titleCase: titleCase, sentenceCase: sentenceCase,
     pluralize: pluralize, formatDate: formatDate, daysUntil: daysUntil,
     hashString: hashString, seeded: seeded, pick: pick, pickN: pickN, unique: unique,
-    splitSentences: splitSentences, splitParagraphs: splitParagraphs, words: words,
+    splitSentences: splitSentences, splitParagraphs: splitParagraphs, words: words, isAbbrev: isAbbrev,
     wordCount: wordCount, countSyllables: countSyllables, stripHtml: stripHtml, normalizeQuotes: normalizeQuotes,
     save: save, load: load, remove: remove, download: download, copyText: copyText, slugify: slugify
   };
