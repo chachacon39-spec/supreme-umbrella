@@ -171,13 +171,18 @@ window.FW = window.FW || {};
   /* ---- keywords ---- */
   function findKeywords(text) {
     var out = [];
-    matchAll(/(?:primary |target |focus |main )?keywords?\s*[:\-]\s*([^\n]+)/gi, text).forEach(function (m) {
+    /* \s spans newlines, so "keywords" ending one line bound to the hyphen
+       starting the next bullet and swallowed it whole. On a hyphen-bulleted
+       brief that made "speaking directly to the reader" — half of the tone
+       guideline — the keyword the piece was measured for density against.
+       The label and its separator have to share a line. */
+    matchAll(/(?:primary |target |focus |main )?keywords?[ \t]*[:\-][ \t]*([^\n]+)/gi, text).forEach(function (m) {
       rejoinPlaceNames(m[1].split(/[,;|]/)).forEach(function (k) {
         k = k.trim().replace(/^["'“”]|["'“”]$/g, '');
         if (k && k.length < 60) out.push({ term: k, primary: /primary|focus|main|target/i.test(m[0]) });
       });
     });
-    matchAll(/(?:seo|search) (?:term|phrase)s?\s*[:\-]\s*([^\n]+)/gi, text).forEach(function (m) {
+    matchAll(/(?:seo|search) (?:term|phrase)s?[ \t]*[:\-][ \t]*([^\n]+)/gi, text).forEach(function (m) {
       m[1].split(/[,;|]/).forEach(function (k) { k = k.trim(); if (k) out.push({ term: k, primary: false }); });
     });
     matchAll(/["“]([^"”\n]{4,50})["”]\s*(?:keyword|phrase|as the (?:main|primary) (?:keyword|term))/gi, text)

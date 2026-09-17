@@ -94,6 +94,21 @@ async function run() {
     /* 24/09/2026 built an invalid date and reported no deadline at all. */
     t.equal(deadlineFor('Deadline: 24/09/2026'), '2026-09-24', 'a day-first slash date is read rather than dropped');
     t.equal(deadlineFor('Deadline: 09/24/2026'), '2026-09-24', 'and a month-first one still is');
+
+    /* The keyword label and its separator have to share a line. \s spans
+       newlines, so on a hyphen-bulleted brief "keywords" at the end of one
+       line bound to the "-" starting the next and swallowed that bullet:
+       half the tone guideline, "speaking directly to the reader", became the
+       keyword the draft was measured for density against. */
+    function keywordsFor(brief) {
+      return FW.brief.analyze({ title: 'T', brief: brief }).meta.keywords.map(function (k) { return k.term; });
+    }
+    t.equal(keywordsFor([
+      '- Content should insert any keywords',
+      '- The tone of this content should be professional yet engaging, speaking directly to the reader'
+    ].join('\n')).length, 0, 'a bullet after a bare "keywords" is not a keyword list');
+    t.includes(keywordsFor('Keywords: electric cars 2026').join('|'), 'electric cars 2026', 'a labelled list on one line still reads');
+    t.includes(keywordsFor('Keywords - electric cars 2026').join('|'), 'electric cars 2026', 'and so does a dash-separated one');
     t.equal(a.meta.pov, 'second person', 'detects the requested point of view');
     t.equal(a.meta.readingLevel, 8, 'detects the target reading level');
     t.equal(a.meta.citationStyle, 'APA 7', 'detects the citation style');

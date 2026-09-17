@@ -280,7 +280,10 @@ async function run() {
         var first = document.querySelector('.check-item');
         return first && first.parentElement ? first.parentElement.innerText : '';
       });
-      t.match(compliance, /15\/15 automatic/, 'every automatic check passes on the finished draft');
+      /* One fewer automatic than before: the item-coverage row is no longer
+         counted as one, because counting sections cannot verify they are the
+         sections the brief named. */
+      t.match(compliance, /14\/14 automatic/, 'every automatic check passes on the finished draft');
       t.match(compliance, /1,500 words so far/, 'inside the range');
       t.notMatch(compliance, /short|over by/, 'with nothing outstanding on length');
       t.match(compliance, /47 of 60 characters/, 'the title is measured, not assumed');
