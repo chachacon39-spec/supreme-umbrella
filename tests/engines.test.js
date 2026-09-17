@@ -76,6 +76,24 @@ async function run() {
     t.equal(a.meta.wordCount.min, 1200, 'reads the lower bound of a word-count range');
     t.equal(a.meta.wordCount.max, 1500, 'reads the upper bound of a word-count range');
     t.equal(a.meta.deadline.date, '2026-03-14', 'parses a "Month D, YYYY" deadline');
+
+    /* "24 September 2026" was read by the month-first pattern as "September
+       20" — the front of the year taken for the day — so the deadline came
+       out four days early and looked entirely plausible. Every form a client
+       writes has to land on the same day. */
+    function deadlineFor(line) {
+      var parsed = FW.brief.analyze({ title: 'T', brief: 'Blog post about cars.\n' + line }).meta.deadline;
+      return parsed && parsed.date;
+    }
+    t.equal(deadlineFor('Deadline: 24 September 2026.'), '2026-09-24', 'day-first, with a trailing full stop');
+    t.equal(deadlineFor('Deadline: 24 September 2026'), '2026-09-24', 'day-first, bare');
+    t.equal(deadlineFor('Due 3 October 2026.'), '2026-10-03', 'a single-digit day is not padded out of shape');
+    t.equal(deadlineFor('Deadline: 11 November 2026.'), '2026-11-11', 'and a day that matches its month is not confused for it');
+    t.equal(deadlineFor('Deadline: September 24, 2026'), '2026-09-24', 'month-first still works');
+    t.equal(deadlineFor('Deadline: 2026-09-24'), '2026-09-24', 'so does ISO');
+    /* 24/09/2026 built an invalid date and reported no deadline at all. */
+    t.equal(deadlineFor('Deadline: 24/09/2026'), '2026-09-24', 'a day-first slash date is read rather than dropped');
+    t.equal(deadlineFor('Deadline: 09/24/2026'), '2026-09-24', 'and a month-first one still is');
     t.equal(a.meta.pov, 'second person', 'detects the requested point of view');
     t.equal(a.meta.readingLevel, 8, 'detects the target reading level');
     t.equal(a.meta.citationStyle, 'APA 7', 'detects the citation style');

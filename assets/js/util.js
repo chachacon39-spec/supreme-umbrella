@@ -220,21 +220,45 @@ window.FW = window.FW || {};
     setTimeout(function () { document.body.removeChild(a); URL.revokeObjectURL(url); }, 400);
   }
 
+  /* Both paths resolve with whether the text actually reached the clipboard.
+     The old version always resolved true, so a copy the browser had refused
+     still raised a "copied" toast and the writer moved on with an empty
+     clipboard and no way to know. */
   function copyText(text) {
     if (navigator.clipboard && navigator.clipboard.writeText) {
-      return navigator.clipboard.writeText(text).catch(function () { return legacyCopy(text); });
+      return navigator.clipboard.writeText(text).then(
+        function () { return true; },
+        function () { return legacyCopy(text); }
+      );
     }
     return Promise.resolve(legacyCopy(text));
   }
 
+  /* iOS ignores select() on a field it treats as unselectable and refuses to
+     copy out of an invisible one, so the field is real but tiny and the
+     selection is made explicitly rather than through select() alone. */
   function legacyCopy(text) {
     var ta = document.createElement('textarea');
     ta.value = text;
-    ta.style.position = 'fixed'; ta.style.opacity = '0';
-    document.body.appendChild(ta); ta.select();
-    try { document.execCommand('copy'); } catch (e) {}
+    ta.setAttribute('readonly', '');
+    ta.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:1px;padding:0;border:none;font-size:16px';
+    document.body.appendChild(ta);
+    var prior = document.activeElement;
+    var ok = false;
+    try {
+      ta.contentEditable = 'true';
+      ta.readOnly = false;
+      var range = document.createRange();
+      range.selectNodeContents(ta);
+      var sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+      if (ta.setSelectionRange) ta.setSelectionRange(0, text.length);
+      ok = document.execCommand('copy');
+    } catch (e) { ok = false; }
     document.body.removeChild(ta);
-    return true;
+    if (prior && prior.focus) { try { prior.focus(); } catch (e2) {} }
+    return !!ok;
   }
 
   function slugify(s) {

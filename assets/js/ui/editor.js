@@ -60,6 +60,7 @@ window.FW = window.FW || {};
     refs.editor.addEventListener('input', onInput);
     refs.editor.addEventListener('keydown', onKeyDown);
     refs.editor.addEventListener('paste', onPaste);
+    refs.editor.addEventListener('drop', onDrop);
     refs.editor.addEventListener('mouseup', updateToolbarState);
     document.addEventListener('selectionchange', rememberCaret);
     refs.editor.addEventListener('keyup', updateToolbarState);
@@ -224,19 +225,123 @@ window.FW = window.FW || {};
     }
   }
 
+  /* A paste we cannot complete must never be swallowed. This called
+     preventDefault() first and then leaned on execCommand('insertHTML'), whose
+     return value it ignored — so on any engine that does not support the
+     command (mobile among them) the text disappeared with no error, no
+     insertion and nothing to retry. Now nothing is cancelled until the content
+     is actually in the document; anything we cannot place ourselves is handed
+     back to the browser, which still knows how to paste. */
   function onPaste(e) {
-    var html = e.clipboardData && e.clipboardData.getData('text/html');
-    var text = e.clipboardData && e.clipboardData.getData('text/plain');
+    var cd = e.clipboardData || window.clipboardData;
+    if (!cd) return;
+    var html = readData(cd, 'text/html');
+    var text = readData(cd, 'text/plain') || readData(cd, 'Text');
+    if (!html && !text) return;
+    if (!insertPayload(html, text, null)) return;
     e.preventDefault();
-    if (html) {
-      document.execCommand('insertHTML', false, sanitize(html));
-    } else if (text) {
-      var paras = text.split(/\n\s*\n/).map(function (p) {
-        return '<p>' + U.escapeHtml(p).replace(/\n/g, '<br>') + '</p>';
-      }).join('');
-      document.execCommand('insertHTML', false, paras);
-    }
     onInput();
+  }
+
+  /* Dropped markup reached the draft without ever passing through sanitize():
+     drop was the one input path with no handler, so a drag out of a web page
+     carried its classes, ids, inline styles and scripts into the document and
+     on into the exported file. It is cleaned now, and as with paste a drop we
+     cannot place ourselves is left to the browser. */
+  function onDrop(e) {
+    var dt = e.dataTransfer;
+    if (!dt || (dt.files && dt.files.length)) return;
+    var html = readData(dt, 'text/html');
+    var text = readData(dt, 'text/plain');
+    if (!html && !text) return;
+    if (!insertPayload(html, text, caretFromPoint(e.clientX, e.clientY))) return;
+    e.preventDefault();
+    onInput();
+  }
+
+  function readData(source, type) {
+    try { return source.getData(type) || ''; } catch (err) { return ''; }
+  }
+
+  function textToHtml(text) {
+    var paras = text.split(/\n\s*\n/);
+    /* One run of text belongs inline, where the caret is. Giving it a paragraph
+       of its own splits the sentence the writer is pasting into. */
+    if (paras.length === 1) return U.escapeHtml(paras[0]).replace(/\n/g, '<br>');
+    return paras.map(function (p) {
+      return '<p>' + U.escapeHtml(p).replace(/\n/g, '<br>') + '</p>';
+    }).join('');
+  }
+
+  function caretFromPoint(x, y) {
+    var range = null;
+    if (document.caretRangeFromPoint) range = document.caretRangeFromPoint(x, y);
+    else if (document.caretPositionFromPoint) {
+      var pos = document.caretPositionFromPoint(x, y);
+      if (pos) {
+        range = document.createRange();
+        range.setStart(pos.offsetNode, pos.offset);
+        range.collapse(true);
+      }
+    }
+    return range && refs.editor.contains(range.commonAncestorContainer) ? range : null;
+  }
+
+  /* Returns false when the content could not be placed, so the caller knows to
+     leave the event alone rather than cancel it and lose the payload. */
+  function insertPayload(html, text, at) {
+    var markup = html ? sanitize(html) : textToHtml(text);
+    if (!markup) return false;
+    if (at) {
+      var sel = window.getSelection();
+      if (sel) { sel.removeAllRanges(); sel.addRange(at); }
+    }
+    var placed = false;
+    try { placed = document.execCommand('insertHTML', false, markup) !== false; } catch (err) { placed = false; }
+    if (!placed) placed = rangeInsert(markup);
+    if (placed) stripInsertionNoise();
+    return placed;
+  }
+
+  /* The Range fallback for engines without insertHTML. */
+  function rangeInsert(markup) {
+    var sel = window.getSelection();
+    if (!sel || !sel.rangeCount) return false;
+    var range = sel.getRangeAt(0);
+    if (!refs.editor.contains(range.commonAncestorContainer)) return false;
+    var template = document.createElement('div');
+    template.innerHTML = markup;
+    var fragment = document.createDocumentFragment();
+    var last = null;
+    while (template.firstChild) { last = fragment.appendChild(template.firstChild); }
+    if (!last) return false;
+    try {
+      range.deleteContents();
+      range.insertNode(fragment);
+    } catch (err) { return false; }
+    var after = document.createRange();
+    after.setStartAfter(last);
+    after.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(after);
+    return true;
+  }
+
+  /* insertHTML stamps the caret's own letter-spacing onto what it inserts —
+     sometimes as a wrapper span, sometimes onto an element the payload already
+     had, so pasted bold text arrives as <b style="letter-spacing:0px">. It is
+     invisible on screen and meaningless in the delivered file. Drop the
+     declaration wherever it landed, and unwrap a span left holding nothing. */
+  function stripInsertionNoise() {
+    U.$$('[style]', refs.editor).forEach(function (node) {
+      if (!/^\s*letter-spacing\s*:[^;]*;?\s*$/i.test(node.getAttribute('style') || '')) return;
+      node.removeAttribute('style');
+      if (node.tagName.toLowerCase() !== 'span' || node.attributes.length) return;
+      var parent = node.parentNode;
+      if (!parent) return;
+      while (node.firstChild) parent.insertBefore(node.firstChild, node);
+      parent.removeChild(node);
+    });
   }
 
   /* Strip scripts, styles, events and inline colour noise from pasted markup. */
@@ -270,6 +375,28 @@ window.FW = window.FW || {};
     return !!strong && strong.textContent.trim() === text;
   }
 
+  /* The outline scaffold writes its own instructions into the draft, and they
+     were being read as the writer's prose: counted toward the word target, and
+     scanned for repetition, which on a fresh outline produces a page of
+     warnings about how often the writer has used the word "section". They are
+     furniture. Leave them out until they are written over — matching on the
+     text rather than a marker attribute, so a line stops being a placeholder
+     the moment it is replaced. */
+  var PLACEHOLDER_LINE = /^(?:~\s*\d+\s*words\.\s*)?draft this section\.$/i;
+
+  function isPlaceholder(node) {
+    if (!node || node.nodeType !== 1) return false;
+    return PLACEHOLDER_LINE.test((node.textContent || '').trim());
+  }
+
+  /* Headings stay in the text map, so an untouched scaffold is not empty — it
+     is a stack of headings with nothing under them. */
+  function hasProse() {
+    return Array.prototype.some.call(refs.editor.querySelectorAll('p, li, blockquote'), function (node) {
+      return !isPlaceholder(node) && (node.textContent || '').trim() !== '';
+    });
+  }
+
   function textMap() {
     var text = '', map = [], headings = [];
     (function walk(node) {
@@ -284,6 +411,7 @@ window.FW = window.FW || {};
         } else if (child.nodeType === 1) {
           var tag = child.tagName.toLowerCase();
           if (tag === 'br') { text += '\n'; continue; }
+          if (isPlaceholder(child)) continue;
           var headStart = text.length, isHead = isHeadingLike(child);
           walk(child);
           if (isHead && text.length > headStart) headings.push({ start: headStart, end: text.length });
@@ -617,6 +745,13 @@ window.FW = window.FW || {};
     if (refs.activeTab !== 'issues') { updateIssueBadge(); return; }
     U.clear(refs.rightBody);
     if (!lastResult) { refs.rightBody.appendChild(el('div', { class: 'empty', text: 'Nothing to check yet.' })); return; }
+    if (!hasProse() && refs.editor.textContent.trim()) {
+      refs.rightBody.appendChild(el('div', { class: 'empty' }, [
+        el('div', { style: { fontSize: '22px' }, text: '\u25CB' }),
+        el('div', { text: 'This is still the outline. Its placeholder lines are not yours, so they are not checked or counted \u2014 write over one and the checks begin.' })
+      ]));
+      return;
+    }
 
     var visible = lastResult.issues.filter(function (i) {
       if (ignored[issueKey(i)]) return false;
@@ -909,12 +1044,21 @@ window.FW = window.FW || {};
       refs.leftBody.appendChild(el('hr', { class: 'divider' }));
       refs.leftBody.appendChild(el('div', { class: 'section-title', text: 'Outline progress' }));
       var headings = Array.prototype.map.call(refs.editor.querySelectorAll('h1,h2,h3'), function (h) {
-        return h.textContent.trim().toLowerCase();
+        var prose = '', node = h.nextElementSibling;
+        while (node && !/^h[1-6]$/i.test(node.tagName)) {
+          if (!isPlaceholder(node)) prose += ' ' + (node.textContent || '');
+          node = node.nextElementSibling;
+        }
+        return { text: h.textContent.trim().toLowerCase(), words: U.wordCount(prose) };
       });
       chosen.outline.forEach(function (o) {
         var key = o.text.toLowerCase().split(/[:—-]/)[0].trim().slice(0, 18);
-        var done = headings.some(function (h) { return h.indexOf(key) !== -1; });
-        refs.leftBody.appendChild(el('div', { class: 'check-item' }, [
+        /* Every section ticked green on a scaffold nobody had written into: a
+           heading the app wrote itself was being read as work done. It counts
+           once there is prose underneath it. */
+        var hit = headings.filter(function (h) { return h.text.indexOf(key) !== -1; })[0];
+        var done = !!hit && hit.words >= 10;
+        refs.leftBody.appendChild(el('div', { class: 'check-item outline-item' }, [
           el('span', { class: 'dot ' + (done ? 'dot-pass' : 'dot-manual'), text: done ? '✓' : '○' }),
           el('div', { class: 'grow small', text: o.text })
         ]));
@@ -1509,6 +1653,7 @@ window.FW = window.FW || {};
       getTask: function () { return currentTask; },
       getDoc: function () { return currentDoc; },
       getHtml: function () { return refs.editor.innerHTML; },
+      hasProse: hasProse,
       getText: function () { return lastResult ? lastResult.text : U.stripHtml(refs.editor.innerHTML); },
       getSelection: function () {
         var sel = window.getSelection();

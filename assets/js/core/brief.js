@@ -95,19 +95,46 @@ window.FW = window.FW || {};
 
   /* ---- deadline ---- */
   var MONTHS = 'january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec';
+  /* toISOString() reports UTC, and a date built from a name ("September 24
+     2026") is local midnight — which east of Greenwich is the previous day in
+     UTC. Read the calendar fields back out instead. */
+  function isoDate(d) {
+    return d.getFullYear() + '-' +
+      String(d.getMonth() + 1).padStart(2, '0') + '-' +
+      String(d.getDate()).padStart(2, '0');
+  }
+
   function findDeadline(text) {
     var iso = text.match(/\b(20\d{2})-(\d{2})-(\d{2})\b/);
     if (iso) return { raw: iso[0], date: iso[0] };
-    var md = text.match(new RegExp('\\b(' + MONTHS + ')\\.?\\s+(\\d{1,2})(?:st|nd|rd|th)?(?:,?\\s*(20\\d{2}))?', 'i'));
+
+    /* Day-first dates were being read by the month-first pattern below, which
+       matched "September 20" out of "24 September 2026" — the leading digits
+       of the year taken as the day — and recorded a deadline four days early
+       without ever looking wrong. */
+    var dm = text.match(new RegExp('\\b(\\d{1,2})(?:st|nd|rd|th)?\\s+(' + MONTHS + ')\\.?(?:,?\\s*(20\\d{2}))?', 'i'));
+    if (dm) {
+      var dmDate = new Date(dm[2] + ' ' + dm[1] + ' ' + (dm[3] || new Date().getFullYear()));
+      if (!isNaN(dmDate.getTime())) return { raw: dm[0], date: isoDate(dmDate) };
+    }
+
+    /* (?!\d) keeps the day from swallowing the front of a bare year. */
+    var md = text.match(new RegExp('\\b(' + MONTHS + ')\\.?\\s+(\\d{1,2})(?:st|nd|rd|th)?(?!\\d)(?:,?\\s*(20\\d{2}))?', 'i'));
     if (md) {
       var d = new Date(md[0].replace(/(\d)(st|nd|rd|th)/i, '$1') + (md[3] ? '' : ' ' + new Date().getFullYear()));
-      if (!isNaN(d.getTime())) return { raw: md[0], date: d.toISOString().slice(0, 10) };
+      if (!isNaN(d.getTime())) return { raw: md[0], date: isoDate(d) };
     }
+
     var slash = text.match(/\b(\d{1,2})\/(\d{1,2})\/(20\d{2}|\d{2})\b/);
     if (slash) {
       var yr = slash[3].length === 2 ? '20' + slash[3] : slash[3];
-      var dt = new Date(yr + '-' + String(slash[1]).padStart(2, '0') + '-' + String(slash[2]).padStart(2, '0'));
-      if (!isNaN(dt.getTime())) return { raw: slash[0], date: dt.toISOString().slice(0, 10) };
+      var first = Number(slash[1]), second = Number(slash[2]);
+      /* 24/09/2026 cannot be month-first. It used to build an invalid date and
+         report no deadline at all. */
+      var mon = first > 12 ? second : first;
+      var day = first > 12 ? first : second;
+      var dt = new Date(yr + '-' + String(mon).padStart(2, '0') + '-' + String(day).padStart(2, '0'));
+      if (!isNaN(dt.getTime())) return { raw: slash[0], date: yr + '-' + String(mon).padStart(2, '0') + '-' + String(day).padStart(2, '0') };
     }
     var rel = text.match(/\b(?:due|deadline|deliver(?:y)?|submit(?:ted)? by|needed by)\s*[:\-]?\s*([^\n.;]{3,40})/i);
     if (rel) return { raw: rel[0].trim(), date: null, note: rel[1].trim() };
