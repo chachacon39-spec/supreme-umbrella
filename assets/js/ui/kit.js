@@ -127,7 +127,31 @@ window.FW = window.FW || {};
   }
 
   function copyAndToast(text, label) {
-    U.copyText(text).then(function () { toast((label || 'Copied') + ' to clipboard'); });
+    U.copyText(text).then(function (ok) {
+      if (ok) { toast((label || 'Copied') + ' to clipboard'); return; }
+      manualCopy(text, label);
+    });
+  }
+
+  /* A browser that refuses clipboard access should not leave the writer with
+     nothing. Hand them the text, selected, so they can copy it themselves. */
+  function manualCopy(text, label) {
+    var area = el('textarea', { readonly: '' });
+    area.value = text;
+    area.rows = Math.min(14, Math.max(4, text.split('\n').length + 1));
+    area.style.cssText = 'width:100%;font:13px/1.5 ui-monospace,Menlo,Consolas,monospace';
+    modal({
+      title: (label || 'Copy') + ' \u2014 copy it manually',
+      body: el('div', {}, [
+        el('p', {
+          class: 'small muted', style: { marginTop: 0 },
+          text: 'This browser would not let the page write to your clipboard. The text is below, already selected.'
+        }),
+        area
+      ]),
+      actions: [{ label: 'Done', variant: 'primary' }]
+    });
+    setTimeout(function () { try { area.focus(); area.select(); } catch (e) {} }, 60);
   }
 
   /* Render citation markup (our formatters emit <i> only). */
@@ -139,6 +163,7 @@ window.FW = window.FW || {};
 
   FW.kit = {
     toast: toast, modal: modal, confirm: confirm, prompt: prompt,
-    select: select, field: field, copyAndToast: copyAndToast, richText: richText
+    select: select, field: field, copyAndToast: copyAndToast, manualCopy: manualCopy,
+    richText: richText
   };
 })(window.FW);

@@ -216,6 +216,37 @@ window.FW = window.FW || {};
 
     var suggestNote = el('div', { class: 'tiny dim', style: { marginTop: '6px' } });
 
+    /* A brief dropped or pasted into this single-line field is flattened to one
+       long line, and everything downstream treats the client's guidelines as
+       the name of the piece: the generated headlines, and then the H1 of the
+       scaffolded draft. Catch it while it is still one click from fixed. */
+    var titleNote = el('div', { class: 'tiny', style: { marginTop: '6px', display: 'none' } });
+
+    function looksLikeBrief(value) {
+      var v = String(value || '').trim();
+      return v.length > 140 ||
+        /(?:^|\s)[*\u2022]\s+\S/.test(v) ||
+        /\b\d{2,5}\s*words\b/i.test(v);
+    }
+
+    function checkTitle() {
+      U.clear(titleNote);
+      if (!looksLikeBrief(title.value)) { titleNote.style.display = 'none'; return; }
+      titleNote.style.display = '';
+      titleNote.appendChild(el('span', { class: 'chip chip-warning', text: 'Looks like a brief' }));
+      titleNote.appendChild(el('span', { class: 'dim', text: ' Guidelines belong in the brief box below \u2014 a title this long becomes the headline of the piece. ' }));
+      titleNote.appendChild(el('button', {
+        class: 'btn btn-sm', type: 'button', text: 'Move it to the brief',
+        onclick: function () {
+          brief.value = (title.value + (brief.value ? '\n\n' + brief.value : '')).trim();
+          title.value = '';
+          checkTitle();
+          updateSuggestion();
+          title.focus();
+        }
+      }));
+    }
+
     function updateSuggestion() {
       var text = brief.value + ' ' + title.value;
       if (U.wordCount(text) < 8) { suggestNote.textContent = ''; return; }
@@ -229,10 +260,13 @@ window.FW = window.FW || {};
       suggestNote.textContent = bits.join(' · ');
     }
     brief.addEventListener('input', U.debounce(updateSuggestion, 400));
-    setTimeout(updateSuggestion, 0);
+    title.addEventListener('input', checkTitle);
+    title.addEventListener('input', U.debounce(updateSuggestion, 400));
+    setTimeout(function () { checkTitle(); updateSuggestion(); }, 0);
 
     var body = el('div', {}, [
       K.field('Assignment title', title),
+      titleNote,
       el('div', { class: 'row' }, [K.field('Client', client), K.field('Deadline', deadline)]),
       el('div', { class: 'row' }, [K.field('Word target', words), K.field('Rate (optional)', rate)]),
       K.field('Writer persona', personaSel, 'Sets voice rules, structures and house prohibitions.'),
@@ -528,7 +562,12 @@ window.FW = window.FW || {};
     var existing = U.stripHtml(doc.html).trim();
 
     function scaffold() {
-      var html = ['<h1>' + U.escapeHtml(variant.headlines[0] || task.title) + '</h1>'];
+      /* If the guidelines did end up in the title, the "headline" is the whole
+         blob. An honest placeholder beats handing the client a document headed
+         with their own instructions. */
+      var headline = variant.headlines[0] || task.title || '';
+      if (headline.length > 120) headline = 'Working title';
+      var html = ['<h1>' + U.escapeHtml(headline) + '</h1>'];
       variant.outline.forEach(function (o) {
         html.push('<h2>' + U.escapeHtml(o.text) + '</h2>');
         html.push('<p><em>' + U.escapeHtml((o.words ? '~' + o.words + ' words. ' : '') + 'Draft this section.') + '</em></p>');

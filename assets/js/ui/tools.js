@@ -662,6 +662,39 @@ window.FW = window.FW || {};
   }
 
   /* =================== EXPORT TAB =================== */
+  /* The scaffold's placeholder lines read as a finished document to everything
+     except a human: they are real paragraphs, they convert cleanly, and the
+     file reaches the client looking complete. Nothing checked whether the
+     writer had written anything yet. */
+  var PLACEHOLDER = /draft this section|^~\s*\d+\s*words\./i;
+
+  function draftState(html) {
+    var div = document.createElement('div');
+    div.innerHTML = html || '';
+    var written = 0, placeholder = 0;
+    Array.prototype.forEach.call(div.querySelectorAll('p, li, blockquote'), function (node) {
+      var text = (node.textContent || '').trim();
+      if (!text) return;
+      if (PLACEHOLDER.test(text)) placeholder++; else written++;
+    });
+    return { words: U.wordCount(U.stripHtml(html || '')), written: written, placeholder: placeholder };
+  }
+
+  function readyToSend(api) {
+    var state = draftState(api.getHtml());
+    if (!state.words) {
+      return K.confirm('This draft is empty \u2014 the exported file will have nothing in it. Export anyway?',
+        { confirmLabel: 'Export anyway' });
+    }
+    if (state.placeholder && !state.written) {
+      return K.confirm('This draft is still the outline: ' + state.placeholder + ' ' +
+        U.pluralize(state.placeholder, 'section', 'sections') +
+        ' still say \u201cDraft this section.\u201d and nothing has been written yet. Export anyway?',
+        { confirmLabel: 'Export anyway' });
+    }
+    return Promise.resolve(true);
+  }
+
   function renderExport(host, api) {
     U.clear(host);
     var pane = el('div', { class: 'tool-pane' });
@@ -758,7 +791,8 @@ window.FW = window.FW || {};
     pane.appendChild(el('div', { class: 'stack', style: { marginTop: '12px' } }, buttons.map(function (b) {
       return el('button', {
         class: 'btn ' + (b.primary ? 'btn-primary' : '') , style: { width: '100%', justifyContent: 'flex-start' },
-        text: b.label, onclick: b.run
+        text: b.label,
+        onclick: function () { readyToSend(api).then(function (ok) { if (ok) b.run(); }); }
       });
     })));
 

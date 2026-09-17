@@ -60,6 +60,7 @@ window.FW = window.FW || {};
     refs.editor.addEventListener('input', onInput);
     refs.editor.addEventListener('keydown', onKeyDown);
     refs.editor.addEventListener('paste', onPaste);
+    refs.editor.addEventListener('drop', onDrop);
     refs.editor.addEventListener('mouseup', updateToolbarState);
     document.addEventListener('selectionchange', rememberCaret);
     refs.editor.addEventListener('keyup', updateToolbarState);
@@ -224,19 +225,120 @@ window.FW = window.FW || {};
     }
   }
 
+  /* A paste we cannot complete must never be swallowed. This called
+     preventDefault() first and then leaned on execCommand('insertHTML'), whose
+     return value it ignored — so on any engine that does not support the
+     command (mobile among them) the text disappeared with no error, no
+     insertion and nothing to retry. Now nothing is cancelled until the content
+     is actually in the document; anything we cannot place ourselves is handed
+     back to the browser, which still knows how to paste. */
   function onPaste(e) {
-    var html = e.clipboardData && e.clipboardData.getData('text/html');
-    var text = e.clipboardData && e.clipboardData.getData('text/plain');
+    var cd = e.clipboardData || window.clipboardData;
+    if (!cd) return;
+    var html = readData(cd, 'text/html');
+    var text = readData(cd, 'text/plain') || readData(cd, 'Text');
+    if (!html && !text) return;
+    if (!insertPayload(html, text, null)) return;
     e.preventDefault();
-    if (html) {
-      document.execCommand('insertHTML', false, sanitize(html));
-    } else if (text) {
-      var paras = text.split(/\n\s*\n/).map(function (p) {
-        return '<p>' + U.escapeHtml(p).replace(/\n/g, '<br>') + '</p>';
-      }).join('');
-      document.execCommand('insertHTML', false, paras);
-    }
     onInput();
+  }
+
+  /* Dropped markup reached the draft without ever passing through sanitize():
+     drop was the one input path with no handler, so a drag out of a web page
+     carried its classes, ids, inline styles and scripts into the document and
+     on into the exported file. It is cleaned now, and as with paste a drop we
+     cannot place ourselves is left to the browser. */
+  function onDrop(e) {
+    var dt = e.dataTransfer;
+    if (!dt || (dt.files && dt.files.length)) return;
+    var html = readData(dt, 'text/html');
+    var text = readData(dt, 'text/plain');
+    if (!html && !text) return;
+    if (!insertPayload(html, text, caretFromPoint(e.clientX, e.clientY))) return;
+    e.preventDefault();
+    onInput();
+  }
+
+  function readData(source, type) {
+    try { return source.getData(type) || ''; } catch (err) { return ''; }
+  }
+
+  function textToHtml(text) {
+    var paras = text.split(/\n\s*\n/);
+    /* One run of text belongs inline, where the caret is. Giving it a paragraph
+       of its own splits the sentence the writer is pasting into. */
+    if (paras.length === 1) return U.escapeHtml(paras[0]).replace(/\n/g, '<br>');
+    return paras.map(function (p) {
+      return '<p>' + U.escapeHtml(p).replace(/\n/g, '<br>') + '</p>';
+    }).join('');
+  }
+
+  function caretFromPoint(x, y) {
+    var range = null;
+    if (document.caretRangeFromPoint) range = document.caretRangeFromPoint(x, y);
+    else if (document.caretPositionFromPoint) {
+      var pos = document.caretPositionFromPoint(x, y);
+      if (pos) {
+        range = document.createRange();
+        range.setStart(pos.offsetNode, pos.offset);
+        range.collapse(true);
+      }
+    }
+    return range && refs.editor.contains(range.commonAncestorContainer) ? range : null;
+  }
+
+  /* Returns false when the content could not be placed, so the caller knows to
+     leave the event alone rather than cancel it and lose the payload. */
+  function insertPayload(html, text, at) {
+    var markup = html ? sanitize(html) : textToHtml(text);
+    if (!markup) return false;
+    if (at) {
+      var sel = window.getSelection();
+      if (sel) { sel.removeAllRanges(); sel.addRange(at); }
+    }
+    var placed = false;
+    try { placed = document.execCommand('insertHTML', false, markup) !== false; } catch (err) { placed = false; }
+    if (!placed) placed = rangeInsert(markup);
+    if (placed) stripInsertionNoise();
+    return placed;
+  }
+
+  /* The Range fallback for engines without insertHTML. */
+  function rangeInsert(markup) {
+    var sel = window.getSelection();
+    if (!sel || !sel.rangeCount) return false;
+    var range = sel.getRangeAt(0);
+    if (!refs.editor.contains(range.commonAncestorContainer)) return false;
+    var template = document.createElement('div');
+    template.innerHTML = markup;
+    var fragment = document.createDocumentFragment();
+    var last = null;
+    while (template.firstChild) { last = fragment.appendChild(template.firstChild); }
+    if (!last) return false;
+    try {
+      range.deleteContents();
+      range.insertNode(fragment);
+    } catch (err) { return false; }
+    var after = document.createRange();
+    after.setStartAfter(last);
+    after.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(after);
+    return true;
+  }
+
+  /* insertHTML wraps what it inserts in a span carrying the caret's own
+     letter-spacing. It is invisible on screen and meaningless in the exported
+     file, so unwrap the spans that hold nothing else. */
+  function stripInsertionNoise() {
+    U.$$('span[style]', refs.editor).forEach(function (span) {
+      if (span.attributes.length !== 1) return;
+      if (!/^\s*letter-spacing\s*:[^;]*;?\s*$/i.test(span.getAttribute('style') || '')) return;
+      var parent = span.parentNode;
+      if (!parent) return;
+      while (span.firstChild) parent.insertBefore(span.firstChild, span);
+      parent.removeChild(span);
+    });
   }
 
   /* Strip scripts, styles, events and inline colour noise from pasted markup. */
