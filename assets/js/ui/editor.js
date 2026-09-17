@@ -389,6 +389,17 @@ window.FW = window.FW || {};
     return PLACEHOLDER_LINE.test((node.textContent || '').trim());
   }
 
+  /* A heading with nothing under it is a row of the outline, not a section of
+     the piece. */
+  function proseWordsUnder(heading) {
+    var prose = '', node = heading.nextElementSibling;
+    while (node && !/^h[1-6]$/i.test(node.tagName)) {
+      if (!isPlaceholder(node)) prose += ' ' + (node.textContent || '');
+      node = node.nextElementSibling;
+    }
+    return U.wordCount(prose);
+  }
+
   /* Headings stay in the text map, so an untouched scaffold is not empty — it
      is a stack of headings with nothing under them. */
   function hasProse() {
@@ -1044,12 +1055,7 @@ window.FW = window.FW || {};
       refs.leftBody.appendChild(el('hr', { class: 'divider' }));
       refs.leftBody.appendChild(el('div', { class: 'section-title', text: 'Outline progress' }));
       var headings = Array.prototype.map.call(refs.editor.querySelectorAll('h1,h2,h3'), function (h) {
-        var prose = '', node = h.nextElementSibling;
-        while (node && !/^h[1-6]$/i.test(node.tagName)) {
-          if (!isPlaceholder(node)) prose += ' ' + (node.textContent || '');
-          node = node.nextElementSibling;
-        }
-        return { text: h.textContent.trim().toLowerCase(), words: U.wordCount(prose) };
+        return { text: h.textContent.trim().toLowerCase(), words: proseWordsUnder(h) };
       });
       chosen.outline.forEach(function (o) {
         var key = o.text.toLowerCase().split(/[:—-]/)[0].trim().slice(0, 18);
@@ -1208,17 +1214,29 @@ window.FW = window.FW || {};
                list items. Counting them is rough, but a piece covering four of
                five is short, and nothing else in the app would notice. */
             var want = (analysis.meta.items && analysis.meta.items.count) || 0;
-            var subheads = refs.editor.querySelectorAll('h2, h3').length;
-            var listItems = refs.editor.querySelectorAll('li').length;
+            var subheads = Array.prototype.filter.call(
+              refs.editor.querySelectorAll('h2, h3'),
+              function (h) { return proseWordsUnder(h) >= 10; }).length;
+            var listItems = Array.prototype.filter.call(
+              refs.editor.querySelectorAll('li'),
+              function (li) { return !isPlaceholder(li) && (li.textContent || '').trim() !== ''; }).length;
             var boldLeads = Array.prototype.filter.call(
               refs.editor.querySelectorAll('p > strong:first-child'),
               function (b) { return b.parentElement.textContent.trim() === b.textContent.trim(); }).length;
             var found = Math.max(subheads, listItems, boldLeads);
+            /* Counting structure is a proxy for coverage, never proof of it.
+               Eight outline headings satisfied "cover 3 electric car models"
+               on a draft that had not named a single car — green for the wrong
+               reason, which is worse than amber for the right one. Only
+               written sections count, and a satisfied count asks the writer to
+               confirm rather than claiming the work is done. */
             out.push({
               label: c.label,
-              status: found >= want ? 'pass' : found ? 'warn' : 'manual',
-              detail: found + ' subheading' + (found === 1 ? '' : 's') +
-                ', list items or bold leads in the draft — the brief asks for ' + want
+              status: !found ? 'manual' : found < want ? 'warn' : 'manual',
+              detail: !found
+                ? 'nothing written yet — the brief asks for ' + want
+                : found + ' written ' + U.pluralize(found, 'section') + ' of ' + want +
+                  (found >= want ? ' — check they are the ' + want + ' the brief names' : '')
             });
           } else if (/subheading/i.test(c.label)) {
             var need = analysis.meta.structure.sections || 0;

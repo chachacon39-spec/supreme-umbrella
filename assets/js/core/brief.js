@@ -260,6 +260,10 @@ window.FW = window.FW || {};
      exempt. It reads as a prohibition to a regex and as nonsense to a human. */
   var NOT_A_RULE_RE = /\bdo(?:es)? not count\b|\bare not (?:included|counted)\b|\bdo not apply\b/i;
 
+  /* "Task #474-D -(300 words) Blog post that..." is the assignment, not a
+     guideline about it. */
+  var TASK_LINE_RE = /\bTask\s*#\s*\d+\s*[-\u2013\u2014]?\s*[A-Z]?\b/;
+
   function findInstructions(text) {
     var required = [], forbidden = [];
 
@@ -274,6 +278,12 @@ window.FW = window.FW || {};
 
     splitInstructions(text).forEach(function (line) {
       var t = line.text.trim();
+      /* Pasted without a blank line before it, the assignment rides along on
+         the last bullet, and the whole task is filed as a rule about the
+         submission format: "...font family Calibri Task #474-D -(300 words)
+         Blog post that includes a breakdown of 3 electric car models...". */
+      var taskAt = t.search(TASK_LINE_RE);
+      if (taskAt > 0) t = t.slice(0, taskAt).trim();
       /* The longest bullet is usually the one carrying the citation rules or
          the submission format. Splitting beats discarding. */
       if (t.length > 300) {
