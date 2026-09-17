@@ -110,6 +110,51 @@ async function run() {
     var page = await openApp(browser);
     await openStudio(page, 'Task #500-A — technology blog post');
 
+    await t.section('the scaffold is not the writer\u2019s prose', async function () {
+      await page.waitForTimeout(1200);
+
+      var panel = await page.evaluate(function () {
+        return {
+          issues: document.querySelector('.pane-right') ? document.querySelector('.pane-right').innerText : '',
+          onThePage: (document.querySelector('.editor').innerText.trim().match(/\S+/g) || []).length,
+          counted: Number((document.querySelector('.statusbar').innerText.match(/(\d+)\s+words/) || [])[1] || -1),
+          ticks: document.querySelectorAll('.outline-item .dot-pass').length
+        };
+      });
+
+      /* Nine warnings on an untouched outline, every one of them about the
+         app's own placeholder: "words. Draft this" used 7 times, "Draft" opens
+         8 sentences. The checker was reading its own furniture. */
+      t.match(panel.issues, /still the outline/i, 'the checks say the draft is still scaffold');
+      t.notMatch(panel.issues, /reads as padding|appears 3\+ times|opens \d+ sentences/i, 'rather than flagging the scaffold as repetition');
+      /* Headings belong to the piece and count. The eight "~50 words. Draft
+         this section." lines do not, and used to: the panel read 112 words
+         against a 300-word brief before a word had been written. */
+      t.atLeast(panel.onThePage - panel.counted, 30, 'the placeholder lines are left out of the word count');
+      t.equal(panel.ticks, 0, 'no outline section is ticked off before anything is written');
+
+      await page.evaluate(function () {
+        var ed = document.querySelector('.editor');
+        var first = ed.querySelector('h2');
+        var note = first && first.nextElementSibling;
+        if (note) {
+          note.innerHTML = 'Battery prices fell again this quarter, and the cheapest long-range ' +
+            'models now undercut last year\u2019s mid-range trims by a clear margin.';
+        }
+        ed.dispatchEvent(new InputEvent('input', { bubbles: true }));
+      });
+      await page.waitForTimeout(1400);
+
+      var after = await page.evaluate(function () {
+        return {
+          counted: Number((document.querySelector('.statusbar').innerText.match(/(\d+)\s+words/) || [])[1] || -1),
+          ticks: document.querySelectorAll('.outline-item .dot-pass').length
+        };
+      });
+      t.atLeast(after.ticks, 1, 'writing a section ticks it off');
+      t.atLeast(after.counted - panel.counted, 15, 'and those words do count');
+    });
+
     await t.section('pasting text into the draft', async function () {
       var r = await fireInput(page, 'paste', { 'text/plain': 'pasted words' });
       t.ok(r.cancelled, 'the handler takes the paste over');

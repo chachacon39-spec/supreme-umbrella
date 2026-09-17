@@ -375,6 +375,28 @@ window.FW = window.FW || {};
     return !!strong && strong.textContent.trim() === text;
   }
 
+  /* The outline scaffold writes its own instructions into the draft, and they
+     were being read as the writer's prose: counted toward the word target, and
+     scanned for repetition, which on a fresh outline produces a page of
+     warnings about how often the writer has used the word "section". They are
+     furniture. Leave them out until they are written over — matching on the
+     text rather than a marker attribute, so a line stops being a placeholder
+     the moment it is replaced. */
+  var PLACEHOLDER_LINE = /^(?:~\s*\d+\s*words\.\s*)?draft this section\.$/i;
+
+  function isPlaceholder(node) {
+    if (!node || node.nodeType !== 1) return false;
+    return PLACEHOLDER_LINE.test((node.textContent || '').trim());
+  }
+
+  /* Headings stay in the text map, so an untouched scaffold is not empty — it
+     is a stack of headings with nothing under them. */
+  function hasProse() {
+    return Array.prototype.some.call(refs.editor.querySelectorAll('p, li, blockquote'), function (node) {
+      return !isPlaceholder(node) && (node.textContent || '').trim() !== '';
+    });
+  }
+
   function textMap() {
     var text = '', map = [], headings = [];
     (function walk(node) {
@@ -389,6 +411,7 @@ window.FW = window.FW || {};
         } else if (child.nodeType === 1) {
           var tag = child.tagName.toLowerCase();
           if (tag === 'br') { text += '\n'; continue; }
+          if (isPlaceholder(child)) continue;
           var headStart = text.length, isHead = isHeadingLike(child);
           walk(child);
           if (isHead && text.length > headStart) headings.push({ start: headStart, end: text.length });
@@ -722,6 +745,13 @@ window.FW = window.FW || {};
     if (refs.activeTab !== 'issues') { updateIssueBadge(); return; }
     U.clear(refs.rightBody);
     if (!lastResult) { refs.rightBody.appendChild(el('div', { class: 'empty', text: 'Nothing to check yet.' })); return; }
+    if (!hasProse() && refs.editor.textContent.trim()) {
+      refs.rightBody.appendChild(el('div', { class: 'empty' }, [
+        el('div', { style: { fontSize: '22px' }, text: '\u25CB' }),
+        el('div', { text: 'This is still the outline. Its placeholder lines are not yours, so they are not checked or counted \u2014 write over one and the checks begin.' })
+      ]));
+      return;
+    }
 
     var visible = lastResult.issues.filter(function (i) {
       if (ignored[issueKey(i)]) return false;
@@ -1014,12 +1044,21 @@ window.FW = window.FW || {};
       refs.leftBody.appendChild(el('hr', { class: 'divider' }));
       refs.leftBody.appendChild(el('div', { class: 'section-title', text: 'Outline progress' }));
       var headings = Array.prototype.map.call(refs.editor.querySelectorAll('h1,h2,h3'), function (h) {
-        return h.textContent.trim().toLowerCase();
+        var prose = '', node = h.nextElementSibling;
+        while (node && !/^h[1-6]$/i.test(node.tagName)) {
+          if (!isPlaceholder(node)) prose += ' ' + (node.textContent || '');
+          node = node.nextElementSibling;
+        }
+        return { text: h.textContent.trim().toLowerCase(), words: U.wordCount(prose) };
       });
       chosen.outline.forEach(function (o) {
         var key = o.text.toLowerCase().split(/[:—-]/)[0].trim().slice(0, 18);
-        var done = headings.some(function (h) { return h.indexOf(key) !== -1; });
-        refs.leftBody.appendChild(el('div', { class: 'check-item' }, [
+        /* Every section ticked green on a scaffold nobody had written into: a
+           heading the app wrote itself was being read as work done. It counts
+           once there is prose underneath it. */
+        var hit = headings.filter(function (h) { return h.text.indexOf(key) !== -1; })[0];
+        var done = !!hit && hit.words >= 10;
+        refs.leftBody.appendChild(el('div', { class: 'check-item outline-item' }, [
           el('span', { class: 'dot ' + (done ? 'dot-pass' : 'dot-manual'), text: done ? '✓' : '○' }),
           el('div', { class: 'grow small', text: o.text })
         ]));
