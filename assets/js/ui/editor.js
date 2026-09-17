@@ -1653,6 +1653,7 @@ window.FW = window.FW || {};
       getTask: function () { return currentTask; },
       getDoc: function () { return currentDoc; },
       getHtml: function () { return refs.editor.innerHTML; },
+      hasProse: hasProse,
       getText: function () { return lastResult ? lastResult.text : U.stripHtml(refs.editor.innerHTML); },
       getSelection: function () {
         var sel = window.getSelection();

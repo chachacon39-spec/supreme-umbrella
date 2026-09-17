@@ -133,6 +133,25 @@ async function run() {
       t.atLeast(panel.onThePage - panel.counted, 30, 'the placeholder lines are left out of the word count');
       t.equal(panel.ticks, 0, 'no outline section is ticked off before anything is written');
 
+      /* The paraphraser read the scaffold as the draft and rewrote the app's
+         own outline heading — "Image plan" came back as "Image programme" —
+         reported as one of the writer's 24 sentences improved. */
+      await page.locator('.pane-right .tab', { hasText: 'Tools' }).click();
+      await page.waitForTimeout(400);
+      var before = await page.evaluate(function () { return document.querySelector('.editor').innerHTML; });
+      await page.locator('.pane-right .btn', { hasText: 'Rewrite' }).first().click();
+      await page.waitForTimeout(600);
+      var refused = await page.evaluate(function () {
+        return {
+          toast: document.getElementById('toasts').innerText,
+          html: document.querySelector('.editor').innerHTML
+        };
+      });
+      t.match(refused.toast, /still the outline/i, 'the paraphraser declines an untouched outline');
+      t.equal(refused.html, before, 'and leaves the scaffold alone');
+      await page.locator('.pane-right .tab', { hasText: 'Checks' }).click();
+      await page.waitForTimeout(300);
+
       await page.evaluate(function () {
         var ed = document.querySelector('.editor');
         var first = ed.querySelector('h2');

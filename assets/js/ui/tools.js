@@ -12,6 +12,17 @@ window.FW = window.FW || {};
     ].filter(Boolean));
   }
 
+  /* The writing tools read the draft, and on a fresh outline the only thing
+     there is the app's own scaffold. Left alone, the paraphraser rewrites the
+     headings it wrote itself — "Image plan with license notes" came back as
+     "Image programme with license notes" — and reports it as one of the
+     writer's sentences improved. */
+  function outlineOnly(api, what) {
+    if (!api.hasProse || api.hasProse()) return false;
+    K.toast('This draft is still the outline \u2014 write a section before ' + what, 'error');
+    return true;
+  }
+
   function sourceText(api) {
     var sel = api.getSelection();
     return { text: sel || api.getText(), isSelection: !!sel };
@@ -48,6 +59,7 @@ window.FW = window.FW || {};
 
     function run() {
       var src = sourceText(api);
+      if (!src.isSelection && outlineOnly(api, 'summarising it')) return;
       if (U.wordCount(src.text) < 40) {
         K.toast('Write at least 40 words before summarising', 'error');
         return;
@@ -132,6 +144,7 @@ window.FW = window.FW || {};
 
     function run() {
       var src = sourceText(api);
+      if (!src.isSelection && outlineOnly(api, 'rewriting it')) return;
       if (U.wordCount(src.text) < 8) { K.toast('Select a passage, or write more first', 'error'); return; }
       if (!src.isSelection && U.wordCount(src.text) > 1200) {
         K.toast('Select a passage — paraphrasing a whole long draft at once rarely reads well', 'error');
