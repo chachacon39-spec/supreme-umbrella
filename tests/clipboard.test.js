@@ -27,6 +27,34 @@ var GUIDELINES = [
   '* Content should be submitted in .docx format, font size 14, font family Calibri'
 ].join('\n');
 
+/* Leftover modal backdrops cover the board and swallow the click. */
+async function gotoBoard(page) {
+  await page.evaluate(function () {
+    Array.prototype.forEach.call(document.querySelectorAll('.modal-backdrop'), function (n) { n.remove(); });
+    FW.app.setView('board');
+  });
+  await page.waitForTimeout(500);
+}
+
+/* The paste tests have to run in an open draft. execCommand only stamps the
+   caret's letter-spacing onto its insertion when there is a computed spacing to
+   copy, and on the bare board there is not — which is exactly how the first
+   version of these assertions came to pass with the fix removed. */
+async function openStudio(page, title) {
+  await page.locator('.board-bar .btn-primary', { hasText: 'New assignment' }).click();
+  await page.waitForTimeout(300);
+  await page.locator('.modal input[type="text"]').nth(0).fill(title);
+  await page.locator('.modal input[type="text"]').nth(1).fill('Portal client');
+  await page.locator('.modal textarea').fill(GUIDELINES);
+  await page.waitForTimeout(400);
+  await page.locator('.modal-foot .btn-primary', { hasText: 'Create & analyse' }).click();
+  await page.waitForTimeout(1000);
+  await page.locator('.style-card .btn', { hasText: 'Start draft' }).first().click();
+  await page.waitForTimeout(1000);
+  var replace = page.locator('.modal-foot .btn', { hasText: 'Replace draft' });
+  if (await replace.count()) { await replace.click(); await page.waitForTimeout(600); }
+}
+
 async function openApp(browser) {
   var page = await browser.newPage({ viewport: { width: 1500, height: 960 }, acceptDownloads: true });
   var errors = [];
@@ -80,6 +108,7 @@ async function run() {
 
   try {
     var page = await openApp(browser);
+    await openStudio(page, 'Task #500-A — technology blog post');
 
     await t.section('pasting text into the draft', async function () {
       var r = await fireInput(page, 'paste', { 'text/plain': 'pasted words' });
@@ -160,6 +189,7 @@ async function run() {
     });
 
     await t.section('a brief dropped into the title field', async function () {
+      await gotoBoard(page);
       await page.locator('.board-bar .btn-primary', { hasText: 'New assignment' }).click();
       await page.waitForTimeout(300);
       var title = page.locator('.modal input[type="text"]').nth(0);
