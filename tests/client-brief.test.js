@@ -145,6 +145,22 @@ async function run() {
          "are continuing to differentiate themselves from competitors". */
       t.includes(coverage, 'continuing to differentiate', 'the differentiation requirement survives');
       t.notMatch(coverage, /\bare continuing\b/, 'starting where the content does, not on the verb');
+
+      /* The first version of this guard compared the benchmark against the
+         topic, which is partly the title the writer typed. Titling the
+         assignment "Task #462-B" instead of naming Salesforce brought the
+         useless check straight back. The brief decides, not the title box. */
+      var titles = await page.evaluate(function (brief) {
+        function cov(title) { return FW.brief.analyze({ title: title, brief: brief }).meta.coverage; }
+        return JSON.parse(JSON.stringify({
+          bare: cov('Task #462-B'),
+          named: cov('Task #462-B \u2014 How Salesforce Became a SaaS Market Leader'),
+          untitled: cov('')
+        }));
+      }, CLIENT_BRIEF);
+      t.notIncludes(titles.bare, 'Salesforce', 'and not when the assignment is titled by number alone');
+      t.notIncludes(titles.named, 'Salesforce', 'nor when the title names the subject');
+      t.notIncludes(titles.untitled, 'Salesforce', 'nor with no title at all');
     });
 
     await t.section('the same two readers on other briefs', async function () {

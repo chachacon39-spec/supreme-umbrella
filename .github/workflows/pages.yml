@@ -1,0 +1,52 @@
+name: pages
+
+# The app is static and has no build step, so publishing is a copy. Only what
+# the browser actually loads goes up: the tests, their fixtures and the client
+# briefs stay in the repository rather than on the public site.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deployment at a time, and never cancel one halfway.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Assemble the site
+        run: |
+          mkdir -p _site
+          cp index.html _site/
+          cp -R assets _site/
+          # A .nojekyll file stops Pages hiding paths that begin with an
+          # underscore. Nothing here starts with one today; this keeps that
+          # from becoming a silent 404 if something ever does.
+          touch _site/.nojekyll
+
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - id: deployment
+        uses: actions/deploy-pages@v4
