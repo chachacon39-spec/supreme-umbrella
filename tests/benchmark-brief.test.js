@@ -237,14 +237,18 @@ async function run() {
       var written = await page.evaluate(function () {
         var items = Array.prototype.slice.call(document.querySelectorAll('.pane-left .check-item'));
         for (var i = 0; i < items.length; i++) {
-          if (/Cover 3 electric car/.test(items[i].innerText)) return items[i].innerText;
+          if (/Cover 3 electric car/.test(items[i].innerText)) {
+            return { text: items[i].innerText, pass: !!items[i].querySelector('.dot-pass') };
+          }
         }
-        return '';
+        return { text: '', pass: false };
       });
-      t.match(written, /written section/, 'a written draft is counted by its sections');
+      t.match(written.text, /written section/, 'a written draft is counted by its sections');
       /* The app cannot tell what a section is about, so it asks rather than
-         reporting the requirement met. */
-      t.match(written, /check they are the 3/, 'and the writer is asked to confirm they are the right three');
+         reporting the requirement met. Five bold leads clear a count of three
+         whether or not a single car has been named. */
+      t.ok(!written.pass, 'meeting the count is still not a pass');
+      t.match(written.text, /check they are the 3/, 'and the writer is asked to confirm they are the right three');
     });
 
     await t.section('the delivered file', async function () {
