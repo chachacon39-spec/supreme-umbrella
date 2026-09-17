@@ -85,13 +85,19 @@ async function run() {
       var r = await fireInput(page, 'paste', { 'text/plain': 'pasted words' });
       t.ok(r.cancelled, 'the handler takes the paste over');
       t.includes(r.text, 'pasted words', 'and the words arrive');
-      /* insertHTML wraps its insertion in the caret's letter-spacing. */
-      t.notMatch(r.html, /letter-spacing/, 'without the span execCommand leaves behind');
       t.equal(r.html.indexOf('<p>Opening line.'), 0, 'inline, not as a new paragraph of its own');
 
       var multi = await fireInput(page, 'paste', { 'text/plain': 'first para\n\nsecond para' });
       t.includes(multi.text, 'first para', 'a blank line still starts a paragraph');
       t.match(multi.html, /<p>second para<\/p>/, 'and the second one is its own block');
+      /* insertHTML stamps the caret's letter-spacing onto what it inserts. A
+         single inline run escapes it, so the multi-block paste is where this
+         has to be asserted. */
+      t.notMatch(multi.html, /letter-spacing/, 'without the styling execCommand leaves behind');
+
+      var rich = await fireInput(page, 'paste', { 'text/html': '<b>bold</b> and more' });
+      t.match(rich.html, /<b>bold<\/b>/, 'pasted bold arrives as bold');
+      t.notMatch(rich.html, /letter-spacing/, 'and not carrying the caret spacing on the tag itself');
     });
 
     await t.section('a paste the engine cannot complete', async function () {
@@ -183,23 +189,32 @@ async function run() {
       t.ok(!moved.warned, 'and the warning clears');
     });
 
-    await t.section('what the client would have received', async function () {
-      await page.locator('.modal input[type="text"]').nth(0).fill('Task #500-A — technology blog post');
+    await t.section('a headline built out of the brief', async function () {
+      /* The warning does not block, so the blob can still reach the scaffold —
+         which used to title the client's article with their own instructions. */
+      await page.locator('.modal input[type="text"]').nth(0).fill(GUIDELINES);
       await page.locator('.modal input[type="text"]').nth(1).fill('Portal client');
+      await page.locator('.modal textarea').fill(GUIDELINES);
       await page.waitForTimeout(400);
       await page.locator('.modal-foot .btn-primary', { hasText: 'Create & analyse' }).click();
       await page.waitForTimeout(1000);
       await page.locator('.style-card .btn', { hasText: 'Start draft' }).first().click();
       await page.waitForTimeout(1000);
-      var confirm = page.locator('.modal-foot .btn', { hasText: 'Replace draft' });
-      if (await confirm.count()) { await confirm.click(); await page.waitForTimeout(600); }
+      var replace = page.locator('.modal-foot .btn', { hasText: 'Replace draft' });
+      if (await replace.count()) { await replace.click(); await page.waitForTimeout(600); }
 
-      var h1 = await page.evaluate(function () {
+      var blobHead = await page.evaluate(function () {
         var h = document.querySelector('.editor h1');
         return h ? h.textContent : '';
       });
-      t.atMost(h1.length, 120, 'the scaffolded headline is a headline, not a pasted brief');
+      t.atMost(blobHead.length, 120, 'a brief-length title never becomes the headline');
+      t.notMatch(blobHead, /Each Piece of Content|density of 2/i, 'the guidelines are not the name of the piece');
 
+    });
+
+    /* Picks up in the studio the previous section left open, on the outline it
+       scaffolded — which is exactly the state the reported draft was in. */
+    await t.section('what the client would have received', async function () {
       await page.locator('.pane-right .tab', { hasText: 'Export' }).click();
       await page.waitForTimeout(400);
       await page.locator('.pane-right .btn', { hasText: 'Word (.docx)' }).first().click();

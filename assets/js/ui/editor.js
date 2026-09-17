@@ -327,17 +327,20 @@ window.FW = window.FW || {};
     return true;
   }
 
-  /* insertHTML wraps what it inserts in a span carrying the caret's own
-     letter-spacing. It is invisible on screen and meaningless in the exported
-     file, so unwrap the spans that hold nothing else. */
+  /* insertHTML stamps the caret's own letter-spacing onto what it inserts —
+     sometimes as a wrapper span, sometimes onto an element the payload already
+     had, so pasted bold text arrives as <b style="letter-spacing:0px">. It is
+     invisible on screen and meaningless in the delivered file. Drop the
+     declaration wherever it landed, and unwrap a span left holding nothing. */
   function stripInsertionNoise() {
-    U.$$('span[style]', refs.editor).forEach(function (span) {
-      if (span.attributes.length !== 1) return;
-      if (!/^\s*letter-spacing\s*:[^;]*;?\s*$/i.test(span.getAttribute('style') || '')) return;
-      var parent = span.parentNode;
+    U.$$('[style]', refs.editor).forEach(function (node) {
+      if (!/^\s*letter-spacing\s*:[^;]*;?\s*$/i.test(node.getAttribute('style') || '')) return;
+      node.removeAttribute('style');
+      if (node.tagName.toLowerCase() !== 'span' || node.attributes.length) return;
+      var parent = node.parentNode;
       if (!parent) return;
-      while (span.firstChild) parent.insertBefore(span.firstChild, span);
-      parent.removeChild(span);
+      while (node.firstChild) parent.insertBefore(node.firstChild, node);
+      parent.removeChild(node);
     });
   }
 
