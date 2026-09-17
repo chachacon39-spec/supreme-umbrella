@@ -493,7 +493,15 @@ window.FW = window.FW || {};
         if (!/[A-Z]/.test(benchmark)) return;
         /* "compare each of them to Salesforce" names the piece's own subject.
            A check the draft cannot fail tells the writer nothing, and it
-           crowds out the ones that can. */
+           crowds out the ones that can.
+
+           Whether it is the subject is decided by the brief, not by whatever
+           the writer happened to type in the title box: a benchmark already
+           named before the comparison clause is what the piece is about.
+           "3 electric car models, as well as a comparison of each to the
+           Tesla Model 3" names the Tesla for the first time right there. */
+        var before = text.slice(0, hit.index);
+        if (new RegExp('\\b' + escapeRe(benchmark) + '\\b', 'i').test(before)) return;
         if (topic && new RegExp('\\b' + escapeRe(benchmark) + '\\b', 'i').test(topic)) return;
         points.push(benchmark);
       });
