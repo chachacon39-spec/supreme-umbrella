@@ -118,7 +118,7 @@ async function run() {
       '* Each piece of content should be no longer than 300 words',
       '* Content should be submitted in .docx format, font size 14, font family Calibri',
       '',
-      'Task #478-B - (300 words) Blog post that provides a brief description and breakdown of the 5 top-rated FAA-approved private flight schools in the U.S. in 2026.'
+      'Task #478-B - (300 words) Blog post that provides a brief description and breakdown of the 5 top-rated FAA-approved private flight schools in the U.S. in 2026, including rates, course hours and course structure/overview.'
     ].join('\n') });
     var required = ((withTask.instructions && withTask.instructions.required) || [])
       .map(function (r) { return String(r && r.text ? r.text : r); });
