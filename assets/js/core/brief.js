@@ -252,7 +252,15 @@ window.FW = window.FW || {};
       var bullet = /^[-*•·▪◦]\s+|^\d+[.)]\s+|^[a-z][.)]\s+/i.test(trimmed);
       var body = trimmed.replace(/^[-*•·▪◦]\s+|^\d+[.)]\s+|^[a-z][.)]\s+/i, '');
       if (bullet) { lines.push({ text: body, bullet: true }); return; }
-      U.splitSentences(body).forEach(function (s) { lines.push({ text: s, bullet: false }); });
+      /* A non-bulleted line is split into sentences, so only the first one
+         carries the task marker. Everything after it is still the assignment:
+         "Please include at least 2 positive and 2 negative impacts" is part of
+         the task, and the checks derived from it already say so. */
+      var inTask = false;
+      U.splitSentences(body).forEach(function (s) {
+        if (s.search(TASK_LINE_RE) === 0) inTask = true;
+        lines.push({ text: s, bullet: false, task: inTask });
+      });
     });
     return lines;
   }
@@ -287,12 +295,14 @@ window.FW = window.FW || {};
          the last bullet, and the whole task is filed as a rule about the
          submission format: "...font family Calibri Task #474-D -(300 words)
          Blog post that includes a breakdown of 3 electric car models...". */
+      /* The assignment was filed as a requirement of its own — manual rows
+         restating the task, which the checks beneath them have already broken
+         into the things that can actually be checked, and which nothing can
+         ever tick. */
+      if (line.task) return;
+      /* A bullet is not sentence-split, so a task glued onto the end of one
+         still has to be cut off here. */
       var taskAt = t.search(TASK_LINE_RE);
-      /* On its own line the assignment was filed as a requirement of its own —
-         a manual row restating the whole task, which the Cover checks beneath
-         it have already broken into the things that can actually be checked,
-         and which nothing can ever tick. */
-      if (taskAt === 0) return;
       if (taskAt > 0) t = t.slice(0, taskAt).trim();
       /* The longest bullet is usually the one carrying the citation rules or
          the submission format. Splitting beats discarding. */

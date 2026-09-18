@@ -171,6 +171,54 @@ async function run() {
       t.includes(bytes, 'example.com/feature.png', 'with the source the client needs');
     });
 
+    await t.section('a picture the writer put on its own line', async function () {
+      /* The draft above holds both images as bare top-level <img> elements —
+         the one wrapper shape that worked. Anywhere else they were dropped
+         silently: runs() has no case for an image, so a block containing one
+         produced a paragraph of the text an image does not have.
+
+         That is the shape this app's own image generator inserts
+         (`<p><img src="data:..."></p>`), and the shape a writer gets by
+         putting a picture on its own line. Every feature image the app made
+         was thrown away by its own exporter, while the compliance panel
+         counted it present and told the writer it was listed for the client. */
+      var shapes = await page.evaluate(async function (args) {
+        async function bytesFor(html) {
+          var blob = FW.exporter.toDocx(html, { title: 'T', docxFont: 'Arial', docxSize: 12 });
+          var view = new Uint8Array(await blob.arrayBuffer());
+          var out = '';
+          for (var i = 0; i < view.length; i++) out += String.fromCharCode(view[i]);
+          return out;
+        }
+        var result = {};
+        var names = Object.keys(args);
+        for (var i = 0; i < names.length; i++) {
+          var raw = await bytesFor(args[names[i]]);
+          result[names[i]] = {
+            drawings: (raw.match(/<w:drawing>/g) || []).length,
+            named: (raw.match(/\[Image/g) || []).length,
+            keptText: raw.indexOf('Caption text') !== -1
+          };
+        }
+        return result;
+      }, {
+        bareData: '<p>Body.</p><img src="data:image/png;base64,' + PNG_BASE64 + '" alt="Chart" width="320" height="240">',
+        wrappedData: '<p>Body.</p><p><img src="data:image/png;base64,' + PNG_BASE64 + '" alt="Chart" width="320" height="240"></p>',
+        bareRemote: '<p>Body.</p><img src="https://example.com/a.png" alt="Alpha">',
+        wrappedRemote: '<p>Body.</p><p><img src="https://example.com/a.png" alt="Alpha"></p>',
+        figure: '<p>Body.</p><figure><img src="https://example.com/a.png" alt="Alpha"><figcaption>Caption text</figcaption></figure>'
+      });
+
+      t.equal(shapes.wrappedData.drawings, shapes.bareData.drawings,
+        'a pasted picture in a paragraph is embedded exactly as a bare one is');
+      t.equal(shapes.wrappedData.drawings, 1, 'which means it is in the file at all');
+      t.equal(shapes.wrappedRemote.named, shapes.bareRemote.named,
+        'and a linked one in a paragraph is named exactly as a bare one is');
+      t.equal(shapes.wrappedRemote.named, 1, 'rather than leaving no trace');
+      t.equal(shapes.figure.named, 1, 'a figure carries its image too');
+      t.ok(shapes.figure.keptText, 'without losing its caption');
+    });
+
     await t.section('the rest of the page', async function () {
       t.equal(count(bytes, '<w:tbl>'), dom.table, 'the table');
       t.equal(count(bytes, '<w:tr>'), dom.rows, 'every row');
