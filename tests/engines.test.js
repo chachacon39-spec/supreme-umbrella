@@ -125,6 +125,24 @@ async function run() {
     t.notMatch(required.join(' | '), /Task #478-B/, 'the assignment is not filed as a guideline about itself');
     t.equal(required.length, 2, 'the two real guidelines are kept');
     t.equal(withTask.meta.items.count, 5, 'and the task is still read as the task');
+
+    /* A non-bulleted line is split into sentences, so only the first carries
+       the task marker. #489-B's assignment runs to two sentences, and the
+       second — "Please include at least 2 positive and 2 negative impacts" —
+       was filed as a guideline of its own, duplicating the two checks already
+       derived from it and adding a row nothing can tick. */
+    var twoSentences = FW.brief.analyze({ title: 'T', brief: [
+      '* Each piece of content should be no longer than 300 words',
+      '',
+      'Task #489-B - (300 words) Blog post that highlights at least 4 ways in which recent tax reform in 2026 will impact equipment leasing companies or lenders. Please include at least 2 positive and 2 negative impacts that the recent reform will have. Keywords: equipment leasing companies 2026 tax reform'
+    ].join('\n') });
+    var req2 = ((twoSentences.instructions && twoSentences.instructions.required) || [])
+      .map(function (r) { return String(r && r.text ? r.text : r); });
+    t.notMatch(req2.join(' | '), /Please include at least 2 positive/, 'the rest of the assignment is the assignment too');
+    t.equal(req2.length, 1, 'only the real guideline is kept');
+    t.equal(twoSentences.meta.items.count, 4, 'the count still comes off the task');
+    t.includes(twoSentences.meta.keywords.map(function (k) { return k.term; }).join('|'),
+      'equipment leasing companies 2026 tax reform', 'and so does the keyword');
     t.equal(a.meta.pov, 'second person', 'detects the requested point of view');
     t.equal(a.meta.readingLevel, 8, 'detects the target reading level');
     t.equal(a.meta.citationStyle, 'APA 7', 'detects the citation style');

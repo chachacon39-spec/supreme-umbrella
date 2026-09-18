@@ -331,6 +331,18 @@ window.FW = window.FW || {};
       var tag = node.tagName.toLowerCase();
       var h = tag.match(/^h([1-6])$/);
       if (h) { out.push(para(runs(node, { bold: false }), 'Heading' + h[1])); return; }
+      /* runs() has no case for an image, so a picture inside a block produced
+         an empty paragraph and vanished from the delivered file. This app's own
+         image generator inserts <p><img ...></p>, so every feature image it
+         made was dropped — while the compliance panel reported it present and
+         listed for the client. A pasted photograph went the same way. */
+      if ((tag === 'p' || tag === 'figure' || tag === 'figcaption') && node.querySelector('img')) {
+        if (node.textContent.trim()) out.push(para(runs(node, {})));
+        Array.prototype.forEach.call(node.querySelectorAll('img'), function (picture) {
+          out.push(imageXml(picture));
+        });
+        return;
+      }
       if (tag === 'p') { out.push(para(runs(node, {}))); return; }
       if (tag === 'ul' || tag === 'ol') { emitList(node, 0); return; }
       if (tag === 'blockquote') { out.push(para(runs(node, { italic: true }), 'Quote')); return; }
