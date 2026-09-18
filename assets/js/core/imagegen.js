@@ -268,6 +268,16 @@ window.FW = window.FW || {};
 
   /* Rasterise the SVG in-browser. Returns a Promise<Blob>. */
   function toPng(svg, width, height, scale) {
+    return toRaster(svg, width, height, scale, 'image/png');
+  }
+
+  /* A download wants a lossless PNG. A picture going into the draft has to live
+     in localStorage, be copied into every version snapshot and travel inside
+     the .docx, and a generated feature image as PNG runs to about 700 KB — the
+     three a brief asks for filled 4.2 MB of a 5 MB store. The same picture as
+     JPEG is a tenth of that, and these are flat gradients with no transparency
+     to lose. */
+  function toRaster(svg, width, height, scale, type, quality) {
     return new Promise(function (resolve, reject) {
       var canvas = document.createElement('canvas');
       canvas.width = Math.round(width * (scale || 1));
@@ -276,10 +286,15 @@ window.FW = window.FW || {};
       var img = new Image();
       /* A data: URL keeps the canvas untainted, so toBlob works. */
       img.onload = function () {
+        if (type === 'image/jpeg') {
+          /* JPEG has no alpha: paint the sheet white first or it comes out black. */
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+        }
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
         canvas.toBlob(function (blob) {
           blob ? resolve(blob) : reject(new Error('Could not rasterise the image.'));
-        }, 'image/png');
+        }, type || 'image/png', quality);
       };
       img.onerror = function () { reject(new Error('Could not load the generated SVG.')); };
       img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
@@ -326,7 +341,7 @@ window.FW = window.FW || {};
 
   FW.imagegen = {
     PALETTES: PALETTES, SIZES: SIZES, PATTERNS: PATTERNS, LAYOUTS: LAYOUTS,
-    generate: generate, toPng: toPng, dataUri: dataUri,
+    generate: generate, toPng: toPng, toRaster: toRaster, dataUri: dataUri,
     searchLinks: searchLinks, attribution: attribution
   };
 })(window.FW);

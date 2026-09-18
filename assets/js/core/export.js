@@ -388,7 +388,12 @@ window.FW = window.FW || {};
       var alt = (node.getAttribute('alt') || '').trim();
       var bytes = dataUrlBytes(src);
       if (!bytes) {
-        return para(runXml('[Image' + (alt ? ': ' + alt : '') + ']' + (src ? ' \u2014 ' + src : ''), { italic: true }));
+        /* A remote URL is worth printing — the client can go and fetch it. A
+           data URI is not: it is the picture itself, and printing one put a
+           wall of encoded bytes in the document where a photograph should be. */
+        var source = /^\s*data:/i.test(src) ? '' : src;
+        return para(runXml('[Image' + (alt ? ': ' + alt : '') + ']' +
+          (source ? ' \u2014 ' + source : src ? ' \u2014 could not be embedded' : ''), { italic: true }));
       }
       var w = Number(node.getAttribute('width')) || node.naturalWidth || 480;
       var h = Number(node.getAttribute('height')) || node.naturalHeight || Math.round(w * 0.625);
