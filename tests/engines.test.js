@@ -109,6 +109,22 @@ async function run() {
     ].join('\n')).length, 0, 'a bullet after a bare "keywords" is not a keyword list');
     t.includes(keywordsFor('Keywords: electric cars 2026').join('|'), 'electric cars 2026', 'a labelled list on one line still reads');
     t.includes(keywordsFor('Keywords - electric cars 2026').join('|'), 'electric cars 2026', 'and so does a dash-separated one');
+
+    /* The assignment is not a guideline. On its own line it was filed as a
+       requirement of its own: a row restating the whole task, which the Cover
+       checks have already broken into the parts that can be checked, and which
+       nothing can ever tick. */
+    var withTask = FW.brief.analyze({ title: 'T', brief: [
+      '* Each piece of content should be no longer than 300 words',
+      '* Content should be submitted in .docx format, font size 14, font family Calibri',
+      '',
+      'Task #478-B - (300 words) Blog post that provides a brief description and breakdown of the 5 top-rated FAA-approved private flight schools in the U.S. in 2026.'
+    ].join('\n') });
+    var required = ((withTask.instructions && withTask.instructions.required) || [])
+      .map(function (r) { return String(r && r.text ? r.text : r); });
+    t.notMatch(required.join(' | '), /Task #478-B/, 'the assignment is not filed as a guideline about itself');
+    t.equal(required.length, 2, 'the two real guidelines are kept');
+    t.equal(withTask.meta.items.count, 5, 'and the task is still read as the task');
     t.equal(a.meta.pov, 'second person', 'detects the requested point of view');
     t.equal(a.meta.readingLevel, 8, 'detects the target reading level');
     t.equal(a.meta.citationStyle, 'APA 7', 'detects the citation style');
