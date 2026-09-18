@@ -174,6 +174,53 @@ async function run() {
       t.equal(page.__errors.length, 0, 'no console errors: ' + page.__errors.join(' | '));
     });
 
+    await t.section('a coverage point written the way a writer writes it', async function () {
+      /* The fixture draft above says "course structure" in every section —
+         the brief's own wording, which is not how anyone writes. Take that
+         phrasing away and the point still has to be recognised.
+
+         It was not. The head word came off the whole point, so for "course
+         structure/overview" it was "structure/overview", a string with a slash
+         through it that no draft will ever contain, and the bare "structure"
+         was never looked for. A live draft covering course structure in all
+         five sections — block schedules, Part 61 flexibility, ground school
+         for credit — reported the point not mentioned at all. The only way to
+         clear the check was to type the slash. */
+      await page.evaluate(function () {
+        var ed = document.querySelector('.editor');
+        ed.innerHTML = [
+          '<h1>Where to earn a license in 2026</h1>',
+          '<p><strong>Five schools worth a deposit</strong></p>',
+          '<p>What each one charges, the course hours it expects, and how the syllabus is built.</p>',
+          '<p><strong>1. [Academy one]</strong></p>',
+          '<p>Its structure runs in blocks with stage checks, and rates are quoted per hour.</p>',
+          '<p><strong>2. [Academy two]</strong></p>',
+          '<p>The structure is published before you pay a deposit, with rates fixed for the year.</p>'
+        ].join('\n');
+        ed.dispatchEvent(new InputEvent('input', { bubbles: true }));
+      });
+      await page.waitForTimeout(1900);
+
+      var row = await page.evaluate(function () {
+        var items = Array.prototype.slice.call(document.querySelectorAll('.pane-left .check-item'));
+        for (var i = 0; i < items.length; i++) {
+          if (/course structure/.test(items[i].innerText)) return items[i].innerText.replace(/\n/g, ' | ');
+        }
+        return '';
+      });
+      t.ok(!!row, 'the course-structure row is shown');
+      t.notMatch(row, /not mentioned yet/, '"structure" on its own covers "course structure/overview"');
+      t.match(row, /2 mentions/, 'and every section that carries it is counted');
+
+      /* Put the fixture draft back for the export checks below. */
+      await page.evaluate(function (html) {
+        var ed = document.querySelector('.editor');
+        ed.innerHTML = html;
+        ed.dispatchEvent(new InputEvent('input', { bubbles: true }));
+      }, DRAFT);
+      await page.waitForTimeout(1200);
+    });
+
     await t.section('the delivered file', async function () {
       await page.locator('.pane-right .tab', { hasText: 'Export' }).click();
       await page.waitForTimeout(400);

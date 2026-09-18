@@ -1352,9 +1352,18 @@ window.FW = window.FW || {};
             break;
           }
 
+          /* The head word has to come off each alternative, not off the whole
+             point. For "course structure/overview" it was "structure/overview"
+             — a string with a slash through it that no draft will ever contain
+             — so the bare "structure" was never looked for, and a piece
+             covering course structure in every one of its five sections
+             reported the point not mentioned at all. Unsatisfiable by writing:
+             the only way to clear it was to type the slash. */
           var stems = [point].concat(point.split(/\s*\/\s*/));
-          var head = point.split(/\s+/).slice(-1)[0];
-          if (head && head.length > 3) stems.push(head);
+          stems.slice(0).forEach(function (alternative) {
+            var word = String(alternative).split(/\s+/).slice(-1)[0];
+            if (word && word.length > 3) stems.push(word);
+          });
 
           var mentions = 0;
           U.unique(stems).forEach(function (stem) {
