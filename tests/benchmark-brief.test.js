@@ -169,6 +169,88 @@ async function run() {
       t.atLeast(checks.doubledReal, 1, 'though a real doubled word still fires');
     });
 
+    await t.section('the assignment is not a guideline', async function () {
+      /* Pasted without a blank line before it, the task line rides along on
+         the last bullet and the whole assignment is filed as a rule about the
+         submission format. Seen live on #474-D:
+         "...font family Calibri Task #474-D -(300 words) Blog post that
+         includes a breakdown of 3 electric car models from Q1 2026...". */
+      var glued = CLIENT_BRIEF
+        .replace(/ Keywords: electric cars 2026$/, '')
+        .replace(/Calibri\n\nTask #474-D/, 'Calibri Task #474-D');
+
+      var a = await page.evaluate(function (brief) {
+        var r = FW.brief.analyze({ title: 'Task #474-D', brief: brief });
+        var req = (r.instructions && r.instructions.required) || [];
+        return {
+          count: req.length,
+          last: req.length ? String(req[req.length - 1].text || req[req.length - 1]) : '',
+          items: JSON.parse(JSON.stringify(r.meta.items || {}))
+        };
+      }, glued);
+
+      t.notMatch(a.last, /Task #474-D/, 'the task does not end up inside a submission-format rule');
+      t.notMatch(a.last, /electric car models/, 'nor does what the piece is about');
+      t.match(a.last, /font family Calibri$/, 'the guideline ends where it ends');
+      t.equal(a.count, 13, 'and no guideline is lost in the process');
+      /* The task line still has to be read as the task. */
+      t.equal(a.items.count, 3, 'the count is still taken from it');
+      t.includes(a.items.noun, 'electric car models', 'along with the subject');
+    });
+
+    await t.section('counting sections is not covering them', async function () {
+      var scaffold = await page.evaluate(function () {
+        var ed = document.querySelector('.editor');
+        ed.innerHTML = '<h1>Working title</h1>' +
+          ['Thesis', 'Evidence', 'Weak points', 'Implications', 'Counter-argument',
+           'Application', 'Image plan', 'Sources'].map(function (h) {
+            return '<h2>' + h + '</h2><p><em>~50 words. Draft this section.</em></p>';
+          }).join('');
+        ed.dispatchEvent(new InputEvent('input', { bubbles: true }));
+        return ed.querySelectorAll('h2').length;
+      });
+      t.equal(scaffold, 8, 'an untouched outline has eight headings');
+      await page.waitForTimeout(1600);
+
+      var row = await page.evaluate(function () {
+        var items = Array.prototype.slice.call(document.querySelectorAll('.pane-left .check-item'));
+        for (var i = 0; i < items.length; i++) {
+          if (/Cover 3 electric car/.test(items[i].innerText)) {
+            return { text: items[i].innerText, pass: !!items[i].querySelector('.dot-pass') };
+          }
+        }
+        return null;
+      });
+      t.ok(!!row, 'the coverage row is shown');
+      /* Eight outline headings beat the three the brief asks for, so this went
+         green on a draft that had not named a single car. */
+      t.ok(row && !row.pass, 'eight empty headings do not satisfy "cover 3 electric car models"');
+      t.match(row ? row.text : '', /nothing written yet/, 'it says nothing has been written');
+
+      await page.evaluate(function (html) {
+        var ed = document.querySelector('.editor');
+        ed.innerHTML = html;
+        ed.dispatchEvent(new InputEvent('input', { bubbles: true }));
+      }, DRAFT);
+      await page.waitForTimeout(1600);
+
+      var written = await page.evaluate(function () {
+        var items = Array.prototype.slice.call(document.querySelectorAll('.pane-left .check-item'));
+        for (var i = 0; i < items.length; i++) {
+          if (/Cover 3 electric car/.test(items[i].innerText)) {
+            return { text: items[i].innerText, pass: !!items[i].querySelector('.dot-pass') };
+          }
+        }
+        return { text: '', pass: false };
+      });
+      t.match(written.text, /written section/, 'a written draft is counted by its sections');
+      /* The app cannot tell what a section is about, so it asks rather than
+         reporting the requirement met. Five bold leads clear a count of three
+         whether or not a single car has been named. */
+      t.ok(!written.pass, 'meeting the count is still not a pass');
+      t.match(written.text, /check they are the 3/, 'and the writer is asked to confirm they are the right three');
+    });
+
     await t.section('the delivered file', async function () {
       await page.locator('.pane-right .tab', { hasText: 'Export' }).click();
       await page.waitForTimeout(400);

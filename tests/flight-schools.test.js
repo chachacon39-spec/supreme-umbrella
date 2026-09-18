@@ -147,7 +147,7 @@ async function run() {
       });
 
       t.match(compliance, /Cover 5 /, 'the item count reaches the compliance panel');
-      t.match(compliance, /the brief asks for 5/, 'and says what it is counting against');
+      t.match(compliance, /of 5\b/, 'and says what it is counting against');
       t.match(compliance, /5 mentions across 5 items/, 'coverage is counted per item, not just found once');
       t.notMatch(compliance, /some are missing it/, 'the finished draft covers every point on every school');
 
