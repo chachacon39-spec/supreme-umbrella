@@ -509,6 +509,69 @@ async function run() {
       t.equal(page.__errors.length, 0, 'no console errors: ' + page.__errors.join(' | '));
     });
 
+    await t.section('the feature image the app makes reaches the client', async function () {
+      /* Every brief on this board asks for a feature image, and the app has a
+         generator for exactly that. What it inserted was an SVG data URL, and
+         a .docx can only carry base64 raster data — so the picture could never
+         be embedded. Once the drop into paragraphs was fixed, it arrived in
+         the client's document as 1,500 characters of percent-encoded markup
+         printed as its own "source". */
+      await page.evaluate(function () {
+        var ed = document.querySelector('.editor');
+        ed.innerHTML = '<h1>California HHA certification</h1>' +
+          '<p>An opening paragraph about the hours the state requires before placement.</p>';
+        ed.dispatchEvent(new InputEvent('input', { bubbles: true }));
+      });
+      await page.waitForTimeout(900);
+
+      await page.locator('.pane-right .tab', { hasText: 'Images' }).click();
+      await page.waitForTimeout(900);
+      await page.locator('.pane-right .btn', { hasText: 'Insert in draft' }).click();
+      await page.waitForTimeout(2500);
+
+      var inserted = await page.evaluate(function () {
+        var img = document.querySelector('.editor img');
+        if (!img) return null;
+        var src = img.getAttribute('src') || '';
+        var total = 0;
+        for (var k in localStorage) {
+          if (Object.prototype.hasOwnProperty.call(localStorage, k)) total += (localStorage[k] || '').length;
+        }
+        /* Match the MIME prefix, not the payload: base64 bytes happen to
+           contain the letters "svg" often enough to make that a false alarm. */
+        return { raster: /^data:image\/(png|jpe?g)/i.test(src), svg: /^data:image\/svg/i.test(src), bytes: src.length, storage: total };
+      });
+      t.ok(!!inserted, 'the generator puts a picture in the draft');
+      t.ok(inserted && inserted.raster, 'as raster data the .docx can actually carry');
+      t.ok(inserted && !inserted.svg, 'not as an SVG the exporter has to give up on');
+      /* As PNG this was ~700 KB, and the three images a brief asks for filled
+         4.2 MB of a 5 MB store — before version snapshots copied each one. */
+      t.atMost(inserted ? inserted.bytes : 1e9, 250000, 'small enough to live in a draft that gets saved');
+      t.atMost(inserted ? inserted.storage : 1e9, 2000000, 'and to leave room in the store');
+
+      await page.locator('.pane-right .tab', { hasText: 'Export' }).click();
+      await page.waitForTimeout(500);
+      var download = (await Promise.all([
+        page.waitForEvent('download', { timeout: 20000 }),
+        page.locator('.pane-right .btn', { hasText: 'Word (.docx)' }).first().click()
+      ]))[0];
+      var chunks = [];
+      var stream = await download.createReadStream();
+      await new Promise(function (resolve) {
+        stream.on('data', function (c) { chunks.push(c); });
+        stream.on('end', resolve);
+      });
+      var bytes = Buffer.concat(chunks).toString('latin1');
+
+      t.equal((bytes.match(/<w:drawing>/g) || []).length, 1, 'and it is a picture in the delivered file');
+      t.includes(bytes, 'relationships/image" Target="media/', 'with a package relationship');
+      t.match(bytes, /Extension="(?:jpg|png)"/, 'and a declared content type');
+      t.notIncludes(bytes, '%3Csvg', 'no encoded markup is printed into the document');
+      t.equal((bytes.match(/\[Image/g) || []).length, 0, 'and it is not reduced to a line naming itself');
+
+      t.equal(page.__errors.length, 0, 'no console errors: ' + page.__errors.join(' | '));
+    });
+
   } finally {
     await browser.close();
   }

@@ -571,8 +571,28 @@ window.FW = window.FW || {};
       el('button', {
         class: 'btn btn-sm', text: 'Insert in draft',
         onclick: function () {
-          api.insertHtml('<p><img src="' + FW.imagegen.dataUri(current.svg) + '" alt="' + U.escapeAttr(state.title) + '" width="' + current.width + '"></p>', 'before the image was inserted');
-          K.toast('Image inserted');
+          /* dataUri() makes an SVG data URL, and a .docx can only carry base64
+             raster data, so the generated feature image could never be embedded
+             — it arrived in the client's document as 1,500 characters of
+             percent-encoded markup printed as its own "source". Rasterise at
+             insert time, the same way the download button already does, and
+             the existing PNG path carries it into Word as a picture. */
+          FW.imagegen.toRaster(current.svg, current.width, current.height, 1, 'image/jpeg', 0.82)
+            .then(function (blob) {
+              return new Promise(function (resolve, reject) {
+                var reader = new FileReader();
+                reader.onload = function () { resolve(reader.result); };
+                reader.onerror = function () { reject(new Error('Could not read the generated image')); };
+                reader.readAsDataURL(blob);
+              });
+            })
+            .then(function (dataUrl) {
+              api.insertHtml('<p><img src="' + dataUrl + '" alt="' + U.escapeAttr(state.title) +
+                '" width="' + current.width + '" height="' + current.height + '"></p>',
+                'before the image was inserted');
+              K.toast('Image inserted');
+            })
+            .catch(function (e) { K.toast(e.message || 'Could not insert the image', 'error'); });
         }
       })
     ]));

@@ -206,7 +206,10 @@ async function run() {
         wrappedData: '<p>Body.</p><p><img src="data:image/png;base64,' + PNG_BASE64 + '" alt="Chart" width="320" height="240"></p>',
         bareRemote: '<p>Body.</p><img src="https://example.com/a.png" alt="Alpha">',
         wrappedRemote: '<p>Body.</p><p><img src="https://example.com/a.png" alt="Alpha"></p>',
-        figure: '<p>Body.</p><figure><img src="https://example.com/a.png" alt="Alpha"><figcaption>Caption text</figcaption></figure>'
+        figure: '<p>Body.</p><figure><img src="https://example.com/a.png" alt="Alpha"><figcaption>Caption text</figcaption></figure>',
+        /* An SVG data URL is what this app's own generator used to insert, and
+           the exporter takes base64 raster data only. */
+        undecodable: '<p>Body.</p><p><img src="data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3C%2Fsvg%3E" alt="Generated"></p>'
       });
 
       t.equal(shapes.wrappedData.drawings, shapes.bareData.drawings,
@@ -217,6 +220,19 @@ async function run() {
       t.equal(shapes.wrappedRemote.named, 1, 'rather than leaving no trace');
       t.equal(shapes.figure.named, 1, 'a figure carries its image too');
       t.ok(shapes.figure.keptText, 'without losing its caption');
+
+      /* A remote URL is worth printing — the client can go and fetch it. A data
+         URI is the picture itself, and printing one put a wall of encoded bytes
+         in the document where a photograph should be. */
+      var blob = await page.evaluate(async function (html) {
+        var made = FW.exporter.toDocx(html, { title: 'T', docxFont: 'Arial', docxSize: 12 });
+        var view = new Uint8Array(await made.arrayBuffer());
+        var raw = '';
+        for (var i = 0; i < view.length; i++) raw += String.fromCharCode(view[i]);
+        return { encoded: raw.indexOf('%3Csvg') !== -1, named: (raw.match(/\[Image/g) || []).length, size: view.length };
+      }, '<p>Body.</p><p><img src="data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3C%2Fsvg%3E" alt="Generated"></p>');
+      t.equal(blob.named, 1, 'an image the exporter cannot decode is still named');
+      t.ok(!blob.encoded, 'but its own bytes are not printed into the document as a source');
     });
 
     await t.section('the rest of the page', async function () {
