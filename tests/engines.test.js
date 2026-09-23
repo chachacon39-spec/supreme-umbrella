@@ -143,6 +143,60 @@ async function run() {
     t.equal(twoSentences.meta.items.count, 4, 'the count still comes off the task');
     t.includes(twoSentences.meta.keywords.map(function (k) { return k.term; }).join('|'),
       'equipment leasing companies 2026 tax reform', 'and so does the keyword');
+
+    /* Every brief in tests/briefs is the same portal template — same bullets,
+       same density rule, same Calibri line. A market's own pitching page is a
+       different shape: a word count that is a floor rather than a cap, no
+       keywords, no font rule, and commercial terms mixed in with content ones.
+       Four things went wrong on one. */
+    function parse(brief) { return FW.brief.analyze({ title: 'T', brief: brief }); }
+
+    /* A rate quoted for "reported longform (>2,000 words)" fell through to the
+       single-number branch and came back as a 1,900-2,200 band — telling the
+       writer to file under the market's own minimum, and under the length the
+       rate is paid for. */
+    var floorCount = parse('Our floor for reported longform (>2,000 words) stories is $2,000.').meta.wordCount;
+    t.equal(floorCount.min, 2000, 'a ">N words" floor is read as a floor');
+    t.equal(floorCount.max, null, 'with no ceiling invented above it');
+    t.equal(parse('We want over 1,500 words.').meta.wordCount.min, 1500, '"over N words" is a floor too');
+    t.equal(parse('Pieces run 2,000+ words.').meta.wordCount.min, 2000, 'and so is "N+ words"');
+    t.equal(parse('Pieces of 2,000 words or more.').meta.wordCount.min, 2000, 'and "N words or more"');
+    /* The ceiling test had to move above the floor test to add "more than"
+       without turning every cap into a minimum. */
+    var cap = parse('Each piece of content should be no longer than 300 words.').meta.wordCount;
+    t.equal(cap.max, 300, 'a cap is still a cap');
+    t.equal(cap.min, null, 'with no floor invented below it');
+    t.ok(cap.ceiling, 'and still marked as a ceiling');
+    var noMore = parse('Write no more than 800 words.').meta.wordCount;
+    t.equal(noMore.max, 800, '"no more than" is a cap, not a floor');
+    t.equal(noMore.min, null, 'even though it contains the words "more than"');
+
+    /* "brings a new topic, angle, or idea to the table" asked a pitch email for
+       a table. */
+    t.ok(!parse('A story that brings a new topic, angle, or idea to the table.').meta.structure.table,
+      'an idiom is not a request for a table');
+    t.ok(parse('Content should include a table.').meta.structure.table, 'but a request for one still is');
+    t.ok(parse('Include a comparison table of upfront cost vs savings.').meta.structure.table,
+      'and so is a named one');
+
+    /* "the who, what, where, when, why, etc. of the piece" ended on a filler
+       token, and Cover "etc" is not a requirement anyone can meet. */
+    var listed = parse('Your pitch should explain the story, including the who, what, where, when, why, etc. of the piece.')
+      .meta.coverage || [];
+    t.notMatch(listed.join('|'), /^etc$|\|etc$|\|etc\|/i, 'a filler token is not a coverage point');
+    t.includes(listed.join('|'), 'who', 'while the real ones survive');
+
+    /* "Clips: Are not necessary to send... but do not select story pitches on
+       the basis of qualification" is telling the writer what they may skip. It
+       was filed as a prohibition because it contains "do not select" — which is
+       the editor's own behaviour, not an instruction. */
+    /* It has to be tested as a bullet. A non-bulleted line is sentence-split,
+       which separates "not necessary" from the "do not select" that trips the
+       prohibition reader, so the prose form never reproduced the fault. */
+    var optional = parse('* Clips: Are not necessary to send along with a story pitch. We may ask you for examples of past work but do not select story pitches on the basis of qualification.');
+    var banned = ((optional.instructions && optional.instructions.forbidden) || [])
+      .map(function (i) { return String(i && i.text ? i.text : i); }).join(' | ');
+    t.notMatch(banned, /not necessary/i, 'being told something is optional is not a prohibition');
     t.equal(a.meta.pov, 'second person', 'detects the requested point of view');
     t.equal(a.meta.readingLevel, 8, 'detects the target reading level');
     t.equal(a.meta.citationStyle, 'APA 7', 'detects the citation style');

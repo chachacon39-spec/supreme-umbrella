@@ -76,12 +76,20 @@ window.FW = window.FW || {};
     if (between) return { min: num(between[1]), max: num(between[2]), raw: between[0] };
     var range = text.match(/(\d[\d,]{1,7})\s*(?:-|–|—|to)\s*(\d[\d,]{1,7})\s*(?:\+)?\s*words?\b/i);
     if (range) return { min: num(range[1]), max: num(range[2]), raw: range[0] };
-    var atLeast = text.match(/(?:at least|minimum(?: of)?|no fewer than|min\.?)\s*(\d[\d,]{1,7})\s*words?\b/i);
-    if (atLeast) return { min: num(atLeast[1]), max: null, raw: atLeast[0] };
     /* A ceiling is not a target. "No longer than 300 words" means 300 is the
-       wall, so a centred band around it would send the writer over. */
+       wall, so a centred band around it would send the writer over. It is
+       tested before the floor below so that "no more than" stays a cap. */
     var atMost = text.match(/(?:no (?:more|longer|greater) than|not (?:to )?exceed(?:ing)?|at most|maximum(?: of)?|under|up to|within|max\.?)\s*(\d[\d,]{1,7})\s*words?\b/i);
     if (atMost) return { min: null, max: num(atMost[1]), raw: atMost[0], ceiling: true };
+    /* And a floor is not a target either. A market whose rate is quoted for
+       "reported longform (>2,000 words)" fell through to the single-number
+       branch below, which built a band of 1,900-2,200 around it: the writer is
+       told to file 1,900 words, under the market's own minimum and under the
+       length the rate is paid for. */
+    var atLeast = text.match(/(?:at least|minimum(?: of)?|no fewer than|min\.?|more than|over|upwards of|north of|>=|\u2265|>)\s*(\d[\d,]{1,7})\s*words?\b/i);
+    if (atLeast) return { min: num(atLeast[1]), max: null, raw: atLeast[0], floor: true };
+    var orMore = text.match(/(\d[\d,]{1,7})\s*(?:\+\s*words?\b|words?\s+(?:or\s+more|and\s+up|plus)\b)/i);
+    if (orMore) return { min: num(orMore[1]), max: null, raw: orMore[0], floor: true };
     var orFewer = text.match(/(\d[\d,]{1,7})\s*words?\s+or\s+(?:fewer|less)\b/i);
     if (orFewer) return { min: null, max: num(orFewer[1]), raw: orFewer[0], ceiling: true };
     var about = text.match(/(?:approx(?:imately)?\.?|around|about|roughly|~)\s*(\d[\d,]{1,7})\s*words?\b/i);
@@ -271,7 +279,7 @@ window.FW = window.FW || {};
 
   /* "Citations do not count toward the word count" tells the writer what is
      exempt. It reads as a prohibition to a regex and as nonsense to a human. */
-  var NOT_A_RULE_RE = /\bdo(?:es)? not count\b|\bare not (?:included|counted)\b|\bdo not apply\b/i;
+  var NOT_A_RULE_RE = /\bdo(?:es)? not count\b|\bare not (?:included|counted)\b|\bdo not apply\b|\b(?:is|are) not necessary\b|\b(?:is|are) not required\b|\bno need to\b/i;
 
   /* "Task #474-D -(300 words) Blog post that..." is the assignment, not a
      guideline about it. */
@@ -363,7 +371,13 @@ window.FW = window.FW || {};
     if (/\bconclusion\b|\bwrap[- ]up\b|\bsummary\b/i.test(text)) s.conclusion = true;
     if (/\bcall[- ]to[- ]action\b|\bcta\b/i.test(text)) s.cta = true;
     if (/\bfaq\b|\bfrequently asked\b/i.test(text)) s.faq = true;
-    if (/\btable\b/i.test(text)) s.table = true;
+    /* "brings a new topic, angle, or idea to the table" is an idiom, and a bare
+       word match turned it into a deliverable — a row on the compliance panel
+       asking a pitch email for a table. Read it as a requirement only where one
+       is being asked for. */
+    if (/\b(?:includ\w*|add|insert|provide|present|contain\w*|feature|with|show|use|supply)\b[^.\n]{0,40}\btables?\b/i.test(text) ||
+      /\b(?:comparison|summary|pricing|data|spec\w*|feature|cost)\s+tables?\b/i.test(text) ||
+      /\btables?\s+(?:of|showing|comparing|listing)\b/i.test(text)) s.table = true;
     if (/\bbullet(?:ed)? (?:points?|lists?)\b/i.test(text)) s.bullets = true;
     if (/\bimages?\b|\bphotos?\b|\bvisuals?\b|\bgraphics?\b/i.test(text)) s.images = true;
     if (/\bquotes?\b|\binterview\b|\bexpert (?:opinion|comment)\b/i.test(text)) s.quotes = true;
@@ -608,6 +622,9 @@ window.FW = window.FW || {};
         .replace(/[.;:]+$/, '')
         .trim();
     }).filter(function (part) {
+      /* "the who, what, where, when, why, etc. of the piece" ends on a filler
+         token, and Cover "etc" is not a requirement anyone can meet. */
+      if (/^(?:etc|e\.?g|i\.?e|such as|like|including|and so on|others?|more)\.?$/i.test(part)) return false;
       return part.length >= 3 && part.length <= 70;
     }))).slice(0, 6);
   }
