@@ -349,6 +349,14 @@ async function run() {
     t.equal(FW.analyzer.analyze(place, {}).issues.filter(function (i) {
       return /padding/i.test(i.message || '');
     }).length, 0, 'a repeated place name is not padding');
+    /* Twice is the name; three times is a habit. Suppressing every capitalised
+       phrase suppressed a long institutional name repeated three times in 300
+       words, which the HHA suite asserts is still worth saying out loud. */
+    var thrice = 'Chimps are tracked in East Africa, where reserves hold them. Hiking is best in East Africa in the dry season. Permits in East Africa cost less than gorilla permits.';
+    t.atLeast(FW.analyzer.analyze(thrice, {}).issues.filter(function (i) {
+      return /padding/i.test(i.message || '');
+    }).length, 1, 'but the same name three times does report');
+
     /* A phrase that really is padding still is. */
     var padded = 'At the end of the day the permit is the cost. At the end of the day the guide is the difference. At the end of the day you still have to walk.';
     t.atLeast(FW.analyzer.analyze(padded, {}).issues.filter(function (i) {

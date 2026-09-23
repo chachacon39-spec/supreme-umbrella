@@ -888,7 +888,6 @@ window.FW = window.FW || {};
         run = /^[A-Z]/.test(text.charAt(slice[c].start)) ? run + 1 : 0;
         if (run >= 2) named = true;
       }
-      if (named) continue;
       /* The scanner reads letters only, so "at least 120 hours" and "at least
          20 hours" both arrive as at/least/hours and collide. The digits sit in
          the gaps between the words, so put them back into the key. */
@@ -897,7 +896,7 @@ window.FW = window.FW || {};
         var nums = text.slice(slice[g - 1].end, slice[g].start).match(/\d+/g);
         key += ' ' + (nums ? nums.join(' ') + ' ' : '') + slice[g].w;
       }
-      (grams[key] = grams[key] || []).push({ start: slice[0].start, end: slice[2].end });
+      (grams[key] = grams[key] || []).push({ start: slice[0].start, end: slice[2].end, named: named });
     }
     /* Repetition reads as padding when it is close together. In 300 words the
        whole piece is close together, which is why a flat "twice anywhere"
@@ -907,6 +906,12 @@ window.FW = window.FW || {};
     Object.keys(grams).forEach(function (key) {
       var hits = grams[key];
       if (hits.length < 2) return;
+      /* Twice is the name; three times is a habit. "in East Africa", twice in a
+         guide to East Africa, is unavoidable — the piece is about East Africa.
+         "Health Care Worker Registry" three times in 300 words is still worth
+         saying out loud. Skipping every capitalised phrase suppressed the
+         second case along with the first. */
+      if (hits[0].named && hits.length < 3) return;
       var near = false;
       for (var h = 1; h < hits.length && !near; h++) {
         if (hits[h].start - hits[h - 1].start <= NEAR) near = true;
