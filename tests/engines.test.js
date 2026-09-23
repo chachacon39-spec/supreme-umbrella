@@ -197,6 +197,60 @@ async function run() {
     var banned = ((optional.instructions && optional.instructions.forbidden) || [])
       .map(function (i) { return String(i && i.text ? i.text : i); }).join(' | ');
     t.notMatch(banned, /not necessary/i, 'being told something is optional is not a prohibition');
+
+    /* A second pitching page, a different shape again: rates in cents per word,
+       no word count at all, and the requirements written as prose rather than as
+       "Label: value". Four more things went wrong on it. */
+
+    /* "Our writing is curious and fair, not snarky or scolding" is a house voice
+       stated at length. Only the label-and-colon form was read, so the panel
+       reported no tone specified — a gap sending the writer to ask an editor
+       about something their own page answers. */
+    var prose = parse('Match our tone. Our writing is curious and fair, not snarky or scolding - the voice of a trusted colleague, not a referee.');
+    t.atLeast(prose.meta.tone.length, 1, 'a voice stated in prose is a stated voice');
+    t.includes(prose.meta.tone.join(' '), 'curious and fair', 'quoted back in the page\u2019s own words');
+    /* A voice statement longer than the capture allows gets cut mid-phrase, and
+       this one lands exactly on an "and". Quoting a tone back to the writer
+       ending on a conjunction reads as a truncation bug, which it was. */
+    /* No word here is in the tone lexicon, so the raw capture is what gets
+       quoted back — which is the path the trim guards. "warm" would have been
+       recognised and short-circuited it. */
+    var longVoice = parse('Our writing is clear, accurate and accessible, curious and fair, plain but exact, never snarky and never scolding and never cynical and never knowing.');
+    t.atLeast(longVoice.meta.tone.length, 1, 'a long voice statement is still read');
+    t.notMatch(longVoice.meta.tone.join(' '), /\b(?:and|or|not|but)$/i, 'and does not end on a dangling conjunction');
+    t.includes(longVoice.meta.tone.join(' '), 'never scolding', 'keeping everything that fitted');
+    t.notMatch(prose.gaps.join(' | '), /No tone specified/, 'and no gap claiming otherwise');
+    /* The portal form has to keep working. */
+    t.includes(parse('Tone: friendly, professional, direct').meta.tone.join('|'), 'professional', 'a labelled tone still reads');
+
+    /* "Our readers include working journalists and news consumers" names an
+       audience. "readers" was missing from the list entirely. */
+    var whoReads = parse('Think about our audience. Our readers include working journalists and news consumers who care about journalism.');
+    t.includes(String(whoReads.meta.audience), 'working journalists', 'an audience named in prose is found');
+    t.notMatch(whoReads.gaps.join(' | '), /Audience is unstated/, 'and not reported as unstated');
+    /* Adding "readers" without requiring a linking verb caught the wrong
+       sentence first: "essays that help readers better understand how news
+       works" is about the piece, not about who reads it. */
+    t.equal(parse('We publish essays that help readers better understand how news works.').meta.audience, null,
+      'a sentence that merely mentions readers is not an audience');
+
+    /* "avoid jargon, hype and insider shorthand whenever possible" carried its
+       qualifier into the last term, and the checker went hunting for the literal
+       phrase "insider shorthand whenever possible". */
+    var soft = parse('We avoid jargon, hype and insider shorthand whenever possible.').meta.banned;
+    t.includes(soft.join('|'), 'insider shorthand', 'the banned term is the term');
+    t.notMatch(soft.join('|'), /whenever possible/i, 'and not the qualifier hanging off it');
+    t.includes(soft.join('|'), 'jargon', 'the other terms still come through');
+
+    /* A reporting plan is not a list of things the piece must contain. */
+    var plan = parse('Show your reporting plan. A likely word count, the sources you plan to interview and any expected access to documents, data or images will strengthen your pitch.');
+    t.ok(!plan.meta.structure.images, 'access to images for reporting is not a request for a feature image');
+    t.ok(!plan.meta.structure.quotes, 'and sources you plan to interview is not a request for pulled quotes');
+    /* What a brief actually asking for them looks like. */
+    t.ok(parse('Content should include 1 royalty-free hi-res feature image (dimensions 600 x 600 px).').meta.structure.images,
+      'a required feature image still registers');
+    t.ok(parse('Content should include quotes from an expert.').meta.structure.quotes,
+      'and so does a required quote');
     t.equal(a.meta.pov, 'second person', 'detects the requested point of view');
     t.equal(a.meta.readingLevel, 8, 'detects the target reading level');
     t.equal(a.meta.citationStyle, 'APA 7', 'detects the citation style');
