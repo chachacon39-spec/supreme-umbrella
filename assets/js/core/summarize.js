@@ -61,10 +61,24 @@ window.FW = window.FW || {};
     });
   }
 
+  /* A heading is a label, not a sentence of the piece. It scores well — it is
+     short and full of the words the piece repeats — so it was picked as a
+     summary sentence and spliced into the prose either side of it: "...back to
+     BIM A chair found in an AI render can now return to Revit". That summary is
+     offered straight back through "Save as meta description".
+
+     The summariser only ever sees plain text, so it cannot be told which lines
+     were headings. What it can see is that they carry no terminal punctuation,
+     which no finished sentence of prose lacks. */
+  function isProseSentence(t) {
+    return /[.!?]["'\u201d\u2019)\]]*$/.test(String(t).trim());
+  }
+
   function buildSentences(text) {
     var out = [];
     U.splitParagraphs(text).forEach(function (p, pi) {
-      U.splitSentences(p).forEach(function (t, si) {
+      var prose = U.splitSentences(p).filter(isProseSentence);
+      prose.forEach(function (t, si) {
         out.push({ text: t, paragraph: pi, paragraphFirst: si === 0 });
       });
     });

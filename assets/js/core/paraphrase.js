@@ -239,8 +239,13 @@ window.FW = window.FW || {};
     }
     var trail = text.match(/^(.{15,})\s+(because|although|though|while|whereas|since|unless)\s+(.{8,})$/i);
     if (trail) {
+      /* The comma that separated the two clauses was captured with the main
+         clause and carried to the end of the rewritten sentence, so fronting
+         "because" gave back "...beside a generated table,." — a comma and a
+         full stop together, in text a writer can paste straight into a draft. */
+      var main = trail[1].trim().replace(/[,;:]+$/, '');
       return {
-        text: upper(trail[2]) + ' ' + decap(trail[3].trim()) + ', ' + decap(trail[1].trim()),
+        text: upper(trail[2]) + ' ' + decap(trail[3].trim()) + ', ' + decap(main),
         note: 'fronted the "' + trail[2].toLowerCase() + '" clause'
       };
     }
