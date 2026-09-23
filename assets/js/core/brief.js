@@ -291,7 +291,12 @@ window.FW = window.FW || {};
 
   /* ---- required elements (imperatives / bullets) ---- */
   var REQUIRE_RE = /\b(?:must|should|need to|needs to|please|make sure to|be sure to|ensure(?: that)?|required to|we(?:'| a)?re looking for|include|incorporate|add|cover|mention|use|provide|write|feature|contain|end with|start with|open with|close with|structure)\b/i;
-  var FORBID_RE = /\b(?:do not|don'?t|avoid|never|no |without|refrain from|steer clear of|omit|exclude|not use|must not|should not|shouldn'?t|cannot|can'?t)\b/i;
+  /* "We are not looking for reviews, listicles, news stories or personal
+     essays" is the one line in the Curzon guidelines that refuses anything, and
+     none of the patterns below reached it: the negation sits between the verb
+     and its object, so neither "we are looking for" nor a bare "no " matches.
+     The line was filed under nothing at all. */
+  var FORBID_RE = /\b(?:do not|don'?t|avoid|never|no |without|refrain from|steer clear of|omit|exclude|not use|must not|should not|shouldn'?t|cannot|can'?t|not (?:looking for|interested in|seeking|accepting|publishing|after)|(?:won'?t|will not|do(?:es)? not) (?:accept|publish|commission|run|consider))\b/i;
 
   function splitInstructions(text) {
     var lines = [];
@@ -329,6 +334,21 @@ window.FW = window.FW || {};
      guideline about it. */
   var TASK_LINE_RE = /\bTask\s*#\s*\d+\s*[-\u2013\u2014]?\s*[A-Z]?\b/;
 
+  /* Titles and worked examples are names the brief happens to mention, not
+     rules it is stating. Only the wording outside them decides what a line is;
+     the line itself is stored and shown whole. Parentheses that are not
+     flagged as examples are left in place, since "(do not include images)" is
+     a rule wherever it sits. */
+  function classifiable(t) {
+    return String(t)
+      .replace(/\((?:\s*(?:e\.?g\.?|i\.?e\.?|for example|for instance|such as|including)\b)[^()]*\)/gi, ' ')
+      .replace(/[\u2018\u2019'"\u201c\u201d]([^\u2018\u2019'"\u201c\u201d]{2,80})[\u2018\u2019'"\u201c\u201d]/g, function (whole, inner) {
+        /* An apostrophe inside a word is not a quote mark, so a span that is
+           really "Marvel's ... studio's" must not be blanked out. */
+        return /^[a-z]/.test(inner) ? whole : ' ';
+      });
+  }
+
   function findInstructions(text) {
     var required = [], forbidden = [];
 
@@ -336,9 +356,14 @@ window.FW = window.FW || {};
       t = t.trim();
       if (t.length < 4) return;
       if (/^(?:tone|audience|word count|keywords?|deadline|due|format|title|client|budget|rate|deliverable)s?\s*[:\-]/i.test(t)) return;
-      if (NOT_A_RULE_RE.test(t)) { required.push(t); return; }
-      if (FORBID_RE.test(t) && !LIMIT_RE.test(t)) { forbidden.push(t); return; }
-      if (bullet || REQUIRE_RE.test(t)) required.push(t);
+      /* Classify on the instruction, not on the examples it cites. A film
+         called Don't Look Up, named inside "(e.g. Lady Gaga for House of Gucci,
+         Leonardo DiCaprio for Don't Look Up)", put the whole bullet — one of
+         five things the Journal says it is looking for — under prohibitions. */
+      var c = classifiable(t);
+      if (NOT_A_RULE_RE.test(c)) { required.push(t); return; }
+      if (FORBID_RE.test(c) && !LIMIT_RE.test(c)) { forbidden.push(t); return; }
+      if (bullet || REQUIRE_RE.test(c)) required.push(t);
     }
 
     splitInstructions(text).forEach(function (line) {

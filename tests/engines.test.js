@@ -870,6 +870,144 @@ async function run() {
     t.notMatch(andBranch.text, /means it the|because it the/i, 'no pronoun forced into the "and" branch');
   });
 
+  /* The Curzon Journal's pitching guidelines and a feature published on it.
+     A film called Don't Look Up, cited as an example of what the Journal wants,
+     put that whole category under prohibitions. */
+  await t.section('brief parsing — an example is not an instruction', function () {
+    function ins(text) { return FW.brief.analyze({ title: 'x', brief: text }).instructions; }
+
+    var wanted = '* Think pieces on actors\u2019 careers and star personas pegged to new releases ' +
+      '(e.g. Lady Gaga for House of Gucci, Leonardo DiCaprio for Don\u2019t Look Up)';
+    var a = ins(wanted);
+    t.equal(a.forbidden.length, 0, 'a film called Don\u2019t Look Up does not forbid the bullet citing it');
+    t.equal(a.required.length, 1, 'the bullet stays where the market put it');
+
+    /* Same bullet, unremarkable film: the two must agree, or the fix is really
+       "stop reading bullets". */
+    var b = ins(wanted.replace('Don\u2019t Look Up', 'The Revenant'));
+    t.equal(b.required.length, a.required.length, 'and reads the same as one citing any other film');
+
+    /* A parenthesis that is not an example still carries its rule. */
+    var live = ins('Write the profile in the present tense (do not use the past tense anywhere).');
+    t.equal(live.forbidden.length, 1, 'a rule in brackets is still a rule');
+
+    /* A title in quotes is a name. */
+    var titled = ins('* Fresh takes on new movies (e.g. \u2018How Spencer Captures the True Tragedy ' +
+      'of Princess Diana\u2019, \u2018Passing: Notes on Belonging\u2019)');
+    t.equal(titled.forbidden.length, 0, 'a quoted headline does not classify the line');
+
+    /* An apostrophe is not an opening quote: blanking from one to the next
+       would swallow the rule between them. The rule has to sit between the two
+       apostrophes, or the assertion passes whether the guard is there or not. */
+    var apos = ins('Marvel\u2019s guidance: never use the studio\u2019s press notes verbatim.');
+    t.equal(apos.forbidden.length, 1, 'an apostrophe inside a word does not blank out the rule between');
+  });
+
+  await t.section('brief parsing — the ways a market says no', function () {
+    function forb(text) { return FW.brief.analyze({ title: 'x', brief: text }).instructions.forbidden; }
+
+    /* The one refusal in the Curzon guidelines, which matched nothing: the
+       negation sits between the verb and its object. */
+    t.equal(forb('We are not looking for reviews, listicles, news stories or personal essays.').length, 1,
+      '"we are not looking for X" is a prohibition');
+    t.equal(forb('We are not interested in reviews or listicles.').length, 1,
+      'so is "not interested in"');
+    t.equal(forb('We are not accepting news stories at this time.').length, 1,
+      'so is "not accepting"');
+    t.equal(forb('We will not publish personal essays.').length, 1,
+      'so is "will not publish"');
+    t.equal(forb('We do not commission reviews.').length, 1,
+      'so is "do not commission"');
+
+    /* Without the negation it is the opposite instruction, and the pattern for
+       it sits in the required list — so this must not follow it across. */
+    var yes = FW.brief.analyze({ title: 'x', brief: 'We are looking for fresh takes on new releases.' });
+    t.equal(yes.instructions.forbidden.length, 0, '"we are looking for X" is not a prohibition');
+    t.atLeast(yes.instructions.required.length, 1, 'it is a requirement');
+  });
+
+  await t.section('the checker — British spellings a UK feature actually uses', function () {
+    function loc(text, lang) {
+      return FW.analyzer.analyze(text, { language: lang }).issues
+        .filter(function (i) { return /locale/.test(i.rule || ''); })
+        .map(function (i) { return i.excerpt; });
+    }
+    /* Straight from the Curzon feature. Two of these four flagged: the list held
+       "favourite" but not "favour", and nothing from the -ise family beyond a
+       couple of stems. */
+    var fromArticle = 'After the rumours that dogged the film, Marvel shot in favour of location ' +
+      'work and rumours grew that it had learned to weaponise spoiler culture.';
+    t.equal(loc(fromArticle, 'en-US').length, 4, 'all four British spellings flag when writing American');
+    t.equal(loc(fromArticle, 'en-GB').length, 0, 'and none of them flags when writing British');
+
+    var more = 'The armour and humour of a favoured saviour, a sombre spectre of fibre, ' +
+      'criticised and summarised, practising offence in the parlour.';
+    t.atLeast(loc(more, 'en-US').length, 10, 'the common -our, -ise, -re and -ce families are covered');
+    t.equal(loc(more, 'en-GB').length, 0, 'and none of them is wrong in British English');
+
+    /* Mirroring the list is its own bug: these American spellings are ordinary
+       British words, or British words meaning something else. Correcting them
+       in en-GB would be an error the writer then has to argue with. */
+    var traps = 'It is good practice to get a license for the program. The draft sat on the ' +
+      'third story. A humorous, glamorous and vigorous piece. He learned to check the meter.';
+    t.equal(loc(traps, 'en-GB').length, 0, 'no American form that is also a British word is corrected');
+  });
+
+  await t.section('the checker — a finding has to be findable', function () {
+    /* The excerpt was the last character of the paragraph on its own: an issue
+       card reading "S", which no writer can locate or act on. */
+    var caption = 'WATCH SPIDER-MAN: BRAND NEW DAY IN CINEMAS';
+    var r = FW.analyzer.analyze(caption + '\n\nThe trailers have teased what is to come without ' +
+      'going out of their way to spoil the key plot details of the film.', {});
+    var term = r.issues.filter(function (i) { return i.rule === 'missing-terminal'; })[0];
+    t.ok(term, 'a paragraph with no terminal punctuation is still flagged');
+    t.atLeast(term.excerpt.length, 10, 'the excerpt is long enough to find in the draft');
+    t.includes(term.excerpt, 'CINEMAS', 'and it quotes the end of the paragraph');
+    t.match(term.fix, /\.$/, 'the fix adds the full stop');
+    t.equal(term.fix.slice(0, -1), term.excerpt, 'and replaces exactly what it quoted');
+    t.ok(r.issues.every(function (i) { return caption.concat('').length > -1; }), 'sanity');
+  });
+
+  await t.section('the checker — a grammatical frame is not a repeated phrase', function () {
+    function phrases(text) {
+      return FW.analyzer.analyze(text, {}).issues
+        .filter(function (i) { return i.rule === 'phrase-repetition'; })
+        .map(function (i) { return i.excerpt; });
+    }
+    /* Twice each in the 1,300-word feature, all reported as padding. The gaps
+       there were 913, 169 and 335 characters; a fixture that packs them into
+       one short sentence tests the opposite case and passes for the wrong
+       reason, so these are spaced the way the real article spaced them. */
+    var gap = ' Marvel has leaned into secrecy since, and the studio now treats every ' +
+      'reveal as a thing to be withheld rather than traded away early to the press. ' +
+      'The approach has held across several releases in a row.';
+    t.equal(phrases('Spidey appeared in one of the last trailers for the film.' + gap +
+      ' The reveal came in one of the promos released later that year.').length, 0,
+      '"in one of" twice, a paragraph apart, is not padding');
+    t.equal(phrases('Go and see it as soon as you can on opening weekend.' + gap +
+      ' Rush out and watch it as soon as the tickets go on sale.').length, 0,
+      '"as soon as" twice, a paragraph apart, is not padding');
+    t.equal(phrases('This became the focus of the release of the sequel.' + gap +
+      ' Marvel repeated it for the release of the film that followed.').length, 0,
+      '"the release of" twice, a paragraph apart, is not padding');
+
+    /* Close together it is clumsy, and that has always reported. */
+    t.atLeast(phrases('The report was written by the team and the report was reviewed ' +
+      'by the team before anybody outside it had seen a single page.').length, 1,
+      'but the same frame twice inside one sentence still reports');
+    /* And a third use is a habit wherever it falls. */
+    t.atLeast(phrases('At the end of the day the permit is the cost.' + gap +
+      ' At the end of the day the guide is the difference.' + gap +
+      ' At the end of the day you still have to walk.').length, 1,
+      'and a frame used three times still reports');
+
+    /* Two content words is the line: a phrase the writer chose still reports,
+       or the rule has simply been switched off. */
+    t.atLeast(phrases('The spoiler culture around the film grew louder every week. Marvel leaned ' +
+      'into the spoiler culture rather than fighting it, as it once had.').length, 1,
+      'but a phrase carrying two content words still reports');
+  });
+
   await t.section('originality', function () {
     var source = 'The payback period for a residential solar installation in Texas typically falls ' +
       'between seven and eleven years, according to the National Renewable Energy Laboratory.';
