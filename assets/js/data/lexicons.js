@@ -20,7 +20,10 @@ window.FW = window.FW || {};
     change: { pos: 'verb', neutral: ['shift', 'alter'], formal: ['modify', 'revise'], simple: ['switch'], creative: ['reshape'] },
     increase: { pos: 'verb', neutral: ['rise', 'grow'], formal: ['escalate'], simple: ['go up'], creative: ['climb'] },
     decrease: { pos: 'verb', neutral: ['fall', 'decline'], formal: ['diminish', 'contract'], simple: ['drop'], creative: ['ebb'] },
-    think: { pos: 'verb', neutral: ['believe', 'consider'], formal: ['contend', 'maintain'], simple: ['reckon'], creative: ['suspect'] },
+    /* "consider" is left out: it does not take a bare that-clause, so "I think
+       Kibale is a victim of its own popularity" came back as "I consider
+       Kibale is…". The others all take one. */
+    think: { pos: 'verb', neutral: ['believe', 'feel'], formal: ['contend', 'maintain'], simple: ['reckon'], creative: ['suspect'] },
     say: { pos: 'verb', neutral: ['state', 'note'], formal: ['assert', 'observe'], simple: ['tell'], creative: ['venture'] },
     improve: { pos: 'verb', neutral: ['strengthen', 'refine'], formal: ['enhance'], simple: ['fix up'], creative: ['sharpen'] },
     reduce: { pos: 'verb', neutral: ['cut', 'lower'], formal: ['curtail', 'mitigate'], simple: ['bring down'], creative: ['pare back'] },
@@ -90,7 +93,12 @@ window.FW = window.FW || {};
     process: { pos: 'noun', neutral: ['procedure', 'method'], formal: ['mechanism'], simple: ['steps'], creative: ['machinery'] },
     period: { pos: 'noun', neutral: ['span', 'window'], formal: ['interval'], simple: ['time'], creative: ['stretch'] },
     amount: { pos: 'noun', neutral: ['quantity', 'volume'], formal: ['magnitude'], simple: ['how much'], creative: ['measure'] },
-    rate: { pos: 'noun', neutral: ['pace', 'level'], formal: ['ratio'], simple: ['speed'], creative: ['tempo'] },
+    /* "rate" is dropped. It names a proportion (a success rate, a conversion
+       rate) and a speed (at a rapid rate) and a price (an hourly rate), and
+       nothing here can tell which is meant: "the success rate stands at around
+       ninety per cent" came back as "the success speed", "success tempo" and
+       "success pace", and a freelancer's hourly rate would go the same way.
+       A word this ambiguous is safer left alone than guessed at. */
 
     /* adjectives */
     important: { pos: 'adj', neutral: ['significant', 'notable'], formal: ['salient', 'material'], simple: ['big'], creative: ['weighty'] },

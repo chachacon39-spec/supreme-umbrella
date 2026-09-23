@@ -1008,6 +1008,75 @@ async function run() {
       'but a phrase carrying two content words still reports');
   });
 
+  await t.section('paraphraser — a heading is not a sentence', function () {
+    /* Headings from the Horizon Guides feature. "What to expect" came back as
+       "What to reckon on", "What to anticipate", "What to bank on" — and the
+       tally read "1 of 1 sentences rewritten". */
+    ['What to expect', 'Packing and preparations', 'Where to see chimps in the wild']
+      .forEach(function (head) {
+        FW.paraphrase.MODES.forEach(function (m) {
+          var r = FW.paraphrase.paraphrase(head, m.id, 'fixed');
+          t.equal(r.text, head, m.label + ': leaves "' + head + '" alone');
+          t.equal(r.totalSentences, 0, m.label + ': and does not count it as a sentence');
+        });
+      });
+
+    /* Splitting a block into sentences and rejoining with spaces glued the
+       heading to the paragraph under it. */
+    var draft = 'What to expect\nThese apes betray their presence with a communal pant-hoot ' +
+      'call that carries a long way through the forest interior.';
+    FW.paraphrase.MODES.forEach(function (m) {
+      var out = FW.paraphrase.paraphrase(draft, m.id, 'fixed').text;
+      t.includes(out, 'What to expect\n', m.label + ': the heading keeps its own line');
+      t.notMatch(out, /expect These/, m.label + ': it is not glued to the paragraph below');
+    });
+
+    /* The prose under the heading is still rewritten, or this is just a way of
+       switching the paraphraser off. */
+    var working = FW.paraphrase.MODES.map(function (m) {
+      return FW.paraphrase.paraphrase(draft, m.id, 'fixed');
+    });
+    t.ok(working.some(function (r) { return r.changedSentences > 0; }),
+      'the paragraph under the heading is still rewritten');
+    t.ok(working.every(function (r) { return r.totalSentences === 1; }),
+      'and exactly one sentence is counted, not two');
+
+    /* A one-line draft that is a real sentence is prose, heading or not. */
+    var real = FW.paraphrase.paraphrase(
+      'It is, in my opinion, every bit as worthwhile as gorilla trekking.', 'standard', 'fixed');
+    t.equal(real.totalSentences, 1, 'a single sentence ending in a full stop is still counted');
+  });
+
+  await t.section('paraphraser — words the bank cannot disambiguate', function () {
+    function all(src) {
+      return FW.paraphrase.MODES.map(function (m) {
+        return { mode: m.label, text: FW.paraphrase.paraphrase(src, m.id, 'fixed').text };
+      });
+    }
+    /* A success rate is a proportion. The bank offered pace, tempo and speed. */
+    all('Chimp tracking here runs as a community project, and the success rate stands at ' +
+      'around ninety per cent.').forEach(function (r) {
+        t.includes(r.text, 'success rate', r.mode + ': a success rate keeps its name');
+        t.notMatch(r.text, /success (?:pace|tempo|speed|level|ratio)/i,
+          r.mode + ': no speed word in a proportion');
+      });
+    /* The same word names what a freelancer gets paid, and would have gone the
+       same way. */
+    all('The hourly rate for the work is agreed before anything is commissioned by the editor.')
+      .forEach(function (r) {
+        t.includes(r.text, 'hourly rate', r.mode + ': an hourly rate keeps its name too');
+      });
+
+    /* "I consider Kibale is a victim" — consider takes no bare that-clause. */
+    all('On the other hand I think Kibale is to some extent a victim of its own popularity.')
+      .forEach(function (r) {
+        t.notMatch(r.text, /\bI consider \w+ (?:is|are|was|were)\b/,
+          r.mode + ': no verb that cannot take a bare that-clause');
+        t.match(r.text, /\bI (?:think|believe|feel|contend|maintain|reckon|suspect) Kibale is\b/,
+          r.mode + ': the verb it picks does take one');
+      });
+  });
+
   await t.section('originality', function () {
     var source = 'The payback period for a residential solar installation in Texas typically falls ' +
       'between seven and eleven years, according to the National Renewable Energy Laboratory.';

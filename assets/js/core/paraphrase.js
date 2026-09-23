@@ -581,6 +581,13 @@ window.FW = window.FW || {};
     return { sentences: out, notes: notes };
   }
 
+  /* No finished sentence of prose ends without terminal punctuation, and the
+     paraphraser only ever sees plain text, so this is the one signal it has
+     that a line was a heading. Same test as the summariser's. */
+  function isProse(t) {
+    return /[.!?]["'\u201d\u2019)\]]*$/.test(String(t).trim());
+  }
+
   function paraphrase(text, mode, seed) {
     mode = mode || 'standard';
     var rnd = U.seeded((seed || 'para') + '|' + mode + '|' + String(text).slice(0, 200));
@@ -596,27 +603,42 @@ window.FW = window.FW || {};
     var pairs = [], allNotes = [], unchanged = [], total = 0;
 
     var out = paragraphs.map(function (p) {
-      var sentences = U.splitSentences(p);
+      /* A paragraph block can hold a heading on its own line. Splitting the
+         whole block into sentences and rejoining with spaces glued the two
+         together — "What to expect These apes betray their presence…" — so the
+         lines are kept apart and put back the way they came in. */
+      return p.split('\n').map(function (line) {
+        if (!line.trim()) return line;
 
-      if (mode === 'creative') {
-        var joined = joinShortPairs(sentences, rnd);
-        if (joined.notes.length) {
-          sentences = joined.sentences;
-          allNotes = allNotes.concat(joined.notes);
-        }
-      }
+        /* A heading is not a sentence, and rewriting it is not paraphrasing.
+           "What to expect" came back as "What to reckon on", and the tally
+           claimed one of one sentences rewritten. The summariser already reads
+           a line with no terminal punctuation as not-prose; this is the same
+           test, and a heading is passed through and left out of the count. */
+        if (!isProse(line)) return line;
 
-      return sentences.map(function (s) {
-        total++;
-        var r = rewriteSentence(s, mode, rnd);
-        if (r.changed) {
-          pairs.push({ before: s, after: r.text, notes: r.notes });
-          allNotes = allNotes.concat(r.notes);
-        } else {
-          unchanged.push(s);
+        var sentences = U.splitSentences(line);
+
+        if (mode === 'creative') {
+          var joined = joinShortPairs(sentences, rnd);
+          if (joined.notes.length) {
+            sentences = joined.sentences;
+            allNotes = allNotes.concat(joined.notes);
+          }
         }
-        return r.text;
-      }).join(' ');
+
+        return sentences.map(function (s) {
+          total++;
+          var r = rewriteSentence(s, mode, rnd);
+          if (r.changed) {
+            pairs.push({ before: s, after: r.text, notes: r.notes });
+            allNotes = allNotes.concat(r.notes);
+          } else {
+            unchanged.push(s);
+          }
+          return r.text;
+        }).join(' ');
+      }).join('\n');
     }).join('\n\n');
 
     return {
