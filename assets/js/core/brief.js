@@ -216,6 +216,13 @@ window.FW = window.FW || {};
 
   function findAudience(text) {
     var m = text.match(/(?:target audience|audience|readership|reader persona|written for|aimed at|for an audience of)\s*(?:is|are|:|-)?\s*([^\n.;]{3,90})/i);
+    if (m) { var first = plausibleAudience(m[1]); if (first) return first; }
+    /* "Our readers include working journalists and news consumers" names an
+       audience without the label-and-colon shape a portal brief uses, and read
+       as none at all. The linking verb is required: "essays that help readers
+       better understand how news works" is a sentence about the piece, not a
+       description of who is reading it. */
+    m = text.match(/\b(?:our |the )?readers?\s+(?:are|include[sd]?|comprise|consist of|skew|tend to be)\s+([^\n.;]{3,90})/i);
     if (m) { var a = plausibleAudience(m[1]); if (a) return a; }
     var m2 = text.match(/\bfor\s+((?:small[- ]business owners|marketers|developers|investors|students|parents|beginners|executives|clinicians|teachers|founders|freelancers|homeowners|retail investors)[^\n.;]{0,40})/i);
     return m2 ? m2[1].trim() : null;
@@ -223,11 +230,24 @@ window.FW = window.FW || {};
 
   /* ---- tone ---- */
   function findTone(text) {
-    var explicit = text.match(/(?:tone|voice|style)\s*(?:of voice)?\s*[:\-]\s*([^\n.;]{3,80})/i);
+    /* "Our writing is curious and fair, not snarky or scolding" states a house
+       voice in prose. A portal brief writes "Tone: friendly, professional" and
+       the label-and-colon shape was the only one read, so a market that spends a
+       paragraph on its voice was reported as having specified no tone at all —
+       a gap telling the writer to go and ask about something the page answers. */
+    var explicit = text.match(/(?:tone|voice|style)\s*(?:of voice)?\s*[:\-]\s*([^\n.;]{3,80})/i) ||
+      text.match(/\bour (?:writing|prose|voice|tone|style)\s+(?:is|reads as)\s+([^\n.;]{3,120})/i) ||
+      text.match(/\b(?:tone|voice|style)\s+(?:should|must)\s+be\s+([^\n.;]{3,120})/i);
     var found = [];
     if (explicit) {
       TONES.forEach(function (t) { if (new RegExp('\\b' + t + '\\b', 'i').test(explicit[1])) found.push(t); });
-      if (!found.length) found.push(explicit[1].trim().toLowerCase());
+      /* The length cap can land mid-phrase, leaving the tone ending on "and" or
+         "not". Drop the dangling word rather than quoting a fragment back. */
+      if (!found.length) {
+        found.push(explicit[1].trim().toLowerCase()
+          .replace(/[\s,;:\u2014-]+(?:and|or|not|but|the|a|an|of|to|with|for|in)$/i, '')
+          .replace(/[\s,;:\u2014-]+$/, '').trim());
+      }
     }
     if (!found.length) {
       /* A tone word attached to a noun like "website" or "source" is describing
@@ -343,6 +363,12 @@ window.FW = window.FW || {};
           w = String(w).replace(/["'“”]/g, '').trim()
             .replace(/^(?:the\s+)?(?:phrase|word|term|expression|cliché|cliche)s?\s+/i, '')
             .replace(/^(?:using|saying|any(?:thing)?\s+like)\s+/i, '')
+            /* "avoid jargon, hype and insider shorthand whenever possible"
+               carries its qualifier into the last term, and Never use "insider
+               shorthand whenever possible" sends the checker hunting a phrase
+               nobody writes. */
+            .replace(/\s+(?:whenever|wherever|where|when|if)\s+(?:possible|practical|practicable|appropriate|necessary)\b[\s\S]*$/i, '')
+            .replace(/\s+as (?:much|far) as possible\b[\s\S]*$/i, '')
             .replace(/[.,;:]+$/, '').trim();
           /* Pulling a quoted phrase out can leave its introducer behind
              ("do not use the phrase X" -> "the phrase"); that is not a term. */
@@ -379,8 +405,17 @@ window.FW = window.FW || {};
       /\b(?:comparison|summary|pricing|data|spec\w*|feature|cost)\s+tables?\b/i.test(text) ||
       /\btables?\s+(?:of|showing|comparing|listing)\b/i.test(text)) s.table = true;
     if (/\bbullet(?:ed)? (?:points?|lists?)\b/i.test(text)) s.bullets = true;
-    if (/\bimages?\b|\bphotos?\b|\bvisuals?\b|\bgraphics?\b/i.test(text)) s.images = true;
-    if (/\bquotes?\b|\binterview\b|\bexpert (?:opinion|comment)\b/i.test(text)) s.quotes = true;
+    /* Bare word matches read a writer's reporting plan as a list of things the
+       piece must contain: "any expected access to documents, data or images will
+       strengthen your pitch" asked a pitch email for a feature image, and "the
+       sources you plan to interview" asked it for pulled quotes. Take these as
+       requirements only where something is being required. */
+    if (/\b(?:includ\w*|add|insert|provide|supply|embed|attach|feature|with|use)\b[^.\n]{0,60}\b(?:images?|photos?|visuals?|graphics?)\b/i.test(text) ||
+      /\b(?:feature|hero|royalty[- ]free|stock|hi[- ]?res|inline)\s+(?:images?|photos?|visuals?|graphics?)\b/i.test(text) ||
+      /\b(?:images?|photos?|visuals?|graphics?)\s+(?:should|must|are required|are needed)\b/i.test(text)) s.images = true;
+    if (/\b(?:includ\w*|add|insert|provide|use|feature|with|contain\w*)\b[^.\n]{0,60}\b(?:quotes?|expert (?:opinion|comment))\b/i.test(text) ||
+      /\bquotes?\s+from\b/i.test(text) ||
+      /\b(?:interview|speak (?:to|with)|talk to)\s+(?:at least\s+)?(?:\d+|one|two|three|four|five|several|multiple|sources?|experts?)\b/i.test(text)) s.quotes = true;
     var links = text.match(/(\d+)\s*(internal|external|outbound|authoritative)?\s*links?\b/i);
     if (links) {
       s.links = num(links[1]);
