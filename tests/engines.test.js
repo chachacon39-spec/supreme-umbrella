@@ -209,7 +209,16 @@ async function run() {
     var prose = parse('Match our tone. Our writing is curious and fair, not snarky or scolding - the voice of a trusted colleague, not a referee.');
     t.atLeast(prose.meta.tone.length, 1, 'a voice stated in prose is a stated voice');
     t.includes(prose.meta.tone.join(' '), 'curious and fair', 'quoted back in the page\u2019s own words');
-    t.notMatch(prose.meta.tone.join(' '), /,\s*not$|\band$/i, 'without a dangling word where the capture ended');
+    /* A voice statement longer than the capture allows gets cut mid-phrase, and
+       this one lands exactly on an "and". Quoting a tone back to the writer
+       ending on a conjunction reads as a truncation bug, which it was. */
+    /* No word here is in the tone lexicon, so the raw capture is what gets
+       quoted back — which is the path the trim guards. "warm" would have been
+       recognised and short-circuited it. */
+    var longVoice = parse('Our writing is clear, accurate and accessible, curious and fair, plain but exact, never snarky and never scolding and never cynical and never knowing.');
+    t.atLeast(longVoice.meta.tone.length, 1, 'a long voice statement is still read');
+    t.notMatch(longVoice.meta.tone.join(' '), /\b(?:and|or|not|but)$/i, 'and does not end on a dangling conjunction');
+    t.includes(longVoice.meta.tone.join(' '), 'never scolding', 'keeping everything that fitted');
     t.notMatch(prose.gaps.join(' | '), /No tone specified/, 'and no gap claiming otherwise');
     /* The portal form has to keep working. */
     t.includes(parse('Tone: friendly, professional, direct').meta.tone.join('|'), 'professional', 'a labelled tone still reads');
