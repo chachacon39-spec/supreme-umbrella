@@ -414,10 +414,18 @@ window.FW = window.FW || {};
         var trimmed = p.text.replace(/\s+$/, '');
         if (trimmed.length > 40 && !/[.!?:"”’)\]]$/.test(trimmed) && !/^#{1,6}\s/.test(trimmed)
           && !inHeading(p.start, p.start + trimmed.length)) {
+          /* The span was the last character alone, so the writer was handed an
+             issue whose excerpt read "S" — nothing they could find in the draft
+             or recognise as theirs. Anchor it to the end of the paragraph
+             still, but show enough of the tail to identify it, and start on a
+             word so the quote is readable. */
+          var tail = trimmed.slice(-48);
+          var space = tail.indexOf(' ');
+          if (trimmed.length > 48 && space > -1) tail = tail.slice(space + 1);
           add({
             rule: 'missing-terminal', type: 'punctuation', severity: 'warning',
-            start: p.start + trimmed.length - 1, end: p.start + trimmed.length,
-            message: 'Paragraph ends without terminal punctuation.', fix: trimmed.slice(-1) + '.'
+            start: p.start + trimmed.length - tail.length, end: p.start + trimmed.length,
+            message: 'Paragraph ends without terminal punctuation.', fix: tail + '.'
           });
         }
       });
@@ -922,6 +930,22 @@ window.FW = window.FW || {};
          assignment, not padding. */
       var content = key.split(' ').filter(function (w) { return !STOPSET[w]; });
       if (content.length && content.every(function (w) { return exempt[w]; })) return;
+      /* "in one of", "as soon as", "the release of" — twice each in a 1,300-word
+         feature, all reported as padding. A trigram carrying a single content
+         word is a grammatical frame, and English runs on them.
+         But "the report was written by the team and the report was reviewed by
+         the team" is the same shape and is clumsy, so the count alone cannot
+         separate them: in the feature the pairs stood 169, 335 and 913
+         characters apart, and in that sentence 40. A frame is worth raising
+         when it comes round again inside a sentence or two, or when it has
+         become a third-time habit. */
+      if (content.length < 2) {
+        var tight = false;
+        for (var q = 1; q < hits.length && !tight; q++) {
+          if (hits[q].start - hits[q - 1].start <= 120) tight = true;
+        }
+        if (hits.length < 3 && !tight) return;
+      }
       /* A subhead states the claim its paragraph then makes, so the two share
          wording by design. Word repetition already ignores headings; this is
          the same rule for the phrase built from those words. */
