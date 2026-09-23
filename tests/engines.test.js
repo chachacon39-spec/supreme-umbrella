@@ -251,6 +251,46 @@ async function run() {
       'a required feature image still registers');
     t.ok(parse('Content should include quotes from an expert.').meta.structure.quotes,
       'and so does a required quote');
+
+    /* Running a real published article through the writing tools, rather than a
+       draft written to suit them. Two output defects, neither of them covered by
+       a single one of the 1055 assertions that were already here. */
+
+    /* A block boundary ends a sentence even with no punctuation on it. Without
+       that, a heading and the paragraph under it are one sentence. */
+    var lines = FW.util.splitSentences('Veras 5 sends the generated object back to BIM\nA chair found in an AI render can now return to Revit.');
+    t.equal(lines.length, 2, 'a heading and the paragraph below it are two sentences');
+    t.equal(lines[0], 'Veras 5 sends the generated object back to BIM', 'the heading stands on its own');
+    /* A full stop inside an abbreviation still must not split. */
+    t.equal(FW.util.splitSentences('Cal. Code Regs. tit. 22 applies here. So does the next rule.').length, 2,
+      'and an abbreviation still does not end one');
+
+    /* The comma that separated the clauses was captured with the main clause and
+       carried to the end, so fronting "because" produced "...generated table,." */
+    var fronted = FW.paraphrase.paraphrase(
+      'Do not trust a visually plausible chair beside a generated table, because both could share the same scale error.',
+      'standard', 'seed-veras');
+    t.notMatch(fronted.text, /,\s*\./, 'fronting a clause leaves no comma before the full stop');
+    t.notMatch(fronted.text, /,\s*$/, 'nor a comma at the end of the sentence');
+    t.match(fronted.text, /^Because both could share the same scale error, do not trust/,
+      'and the rewrite still reads as the transformation it claims');
+
+    /* A heading scores well — short, and full of the words the piece repeats —
+       so it was picked as a summary sentence and spliced into the prose either
+       side of it. That summary is offered back through "Save as meta
+       description". */
+    var article = [
+      'Veras 5 sends the generated object back to BIM',
+      'A chair found in an AI render can now return to Revit, Rhino, or SketchUp as scaled, placed geometry.',
+      'The six-part acceptance test',
+      'Measure overall width, height, and depth immediately against one fixed model element such as a door.',
+      'The release page calls the returned result real, scaled 3D geometry, which is not the same as a native family.'
+    ].join('\n');
+    var digest = FW.summarize.summarize(article, { ratio: 0.5 });
+    t.notMatch(digest.summary, /BIM A chair/, 'a heading is not spliced into the sentence below it');
+    t.notMatch(digest.summary, /back to BIM/, 'and is not used as a summary sentence at all');
+    t.notMatch(digest.tldr, /back to BIM/, 'including as the one-line version');
+    t.atLeast(FW.util.wordCount(digest.summary), 12, 'while the prose sentences still make a summary');
     t.equal(a.meta.pov, 'second person', 'detects the requested point of view');
     t.equal(a.meta.readingLevel, 8, 'detects the target reading level');
     t.equal(a.meta.citationStyle, 'APA 7', 'detects the citation style');

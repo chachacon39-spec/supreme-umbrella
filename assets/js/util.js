@@ -146,6 +146,18 @@ window.FW = window.FW || {};
     text = String(text || '');
     while (i < text.length) {
       var ch = text[i];
+      /* A block boundary ends a sentence even with no punctuation on it. A
+         heading carries no full stop, and without this the summariser glued it
+         to the first sentence of the paragraph below — "Veras 5 sends the
+         generated object back to BIM A chair found in an AI render can now
+         return to Revit..." — and then offered that run-on back through "Save
+         as meta description". */
+      if (ch === '\n') {
+        if (buf.trim()) out.push(buf.trim());
+        buf = '';
+        i++;
+        continue;
+      }
       buf += ch;
       if (ch === '.' || ch === '!' || ch === '?') {
         // swallow trailing quotes/brackets
