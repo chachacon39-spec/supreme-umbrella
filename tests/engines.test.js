@@ -291,6 +291,77 @@ async function run() {
     t.notMatch(digest.summary, /back to BIM/, 'and is not used as a summary sentence at all');
     t.notMatch(digest.tldr, /back to BIM/, 'including as the one-line version');
     t.atLeast(FW.util.wordCount(digest.summary), 12, 'while the prose sentences still make a summary');
+
+    /* A third market page, and a published guide by one of its authors. */
+
+    /* "We don't run straight first-person/narrative accounts of your travel
+       journey" put "Write in first person" on the panel of a publication that
+       rejects exactly that. A refused point of view is not a requested one. */
+    t.equal(parse('We don\u2019t run straight first-person/narrative accounts of your travel journey.').meta.pov,
+      'third person', 'a refused point of view is not the one to write in');
+    t.equal(parse('Write the piece in first person.').meta.pov, 'first person', 'a requested one still is');
+    t.equal(parse('Address the reader directly in second person.').meta.pov, 'second person', 'and so is second person');
+    t.equal(parse('Avoid first person throughout.').meta.pov, 'third person', 'an instruction to avoid it reads as third');
+
+    /* "Don't be afraid to be contrary" is an encouragement wearing a negation,
+       and it was filed as a ban on the thing the market says it most wants. */
+    /* Written with the typographic apostrophe a web page actually uses. The
+       instruction reader was handed the raw text while everything else on the
+       page read the normalised copy, so U+2019 defeated every negation pattern
+       and "We don't produce general destination guides" was not recorded as a
+       prohibition at all. */
+    t.atLeast(((parse('* We don\u2019t produce general destination guides.').instructions || {}).forbidden || []).length, 1,
+      'a curly apostrophe does not hide a prohibition');
+    t.atLeast(((parse("* We don't produce general destination guides.").instructions || {}).forbidden || []).length, 1,
+      'and a straight one still does not either');
+
+    var contrary = parse('* Don\u2019t be afraid to be contrary: if your story goes against the grain of mainstream travel writing we are especially interested.');
+    var banned2 = ((contrary.instructions && contrary.instructions.forbidden) || [])
+      .map(function (i) { return String(i && i.text ? i.text : i); }).join(' | ');
+    t.notMatch(banned2, /afraid to be contrary/i, 'an encouragement is not a prohibition');
+
+    /* The locale rule matched whole words only, so a lexicon holding "colour"
+       said nothing about "colourful" and one holding "organised" said nothing
+       about "organisation". A British-authored guide got an arbitrary one of its
+       seven British spellings flagged, which is worse than none: the writer
+       concludes the six unflagged ones are American. */
+    function localeFlags(text, language) {
+      return FW.analyzer.analyze(text, { language: language }).issues
+        .filter(function (i) { return i.rule && i.rule.indexOf('locale-') === 0; })
+        .map(function (i) { return String(i.excerpt).toLowerCase(); });
+    }
+    var british = 'Nine reserves harbour habituated communities. My favourite park is well-organised, with colourful birds and a neighbour to the south. I specialised in the region and recorded every vocalisation.';
+    var flagged = localeFlags(british, 'en-US').join(' ');
+    ['harbour', 'favourite', 'colourful', 'neighbour', 'specialised', 'vocalisation'].forEach(function (w) {
+      t.includes(flagged, w, 'en-US flags ' + w);
+    });
+    t.equal(localeFlags(british, 'en-GB').length, 0, 'and en-GB flags none of it');
+
+    /* The reverse map is not the inverse of the forward one: several American
+       forms are ordinary British words with other meanings, so mirroring the
+       list wholesale had en-GB correcting "check" to "cheque". */
+    t.equal(localeFlags('Please check the gas meter before you tire of it, and curb the urge to park on the curb among friends.', 'en-GB').length, 0,
+      'check, meter, tire, curb and among are not British misspellings');
+
+    /* "in East Africa", twice in a guide to chimp trekking in East Africa, was
+       reported as padding. A name is repeated because it is the name. */
+    var place = 'Chimps are most easily tracked in East Africa, where nine reserves hold them. Hiking is best in the dry season in East Africa, which varies by region.';
+    t.equal(FW.analyzer.analyze(place, {}).issues.filter(function (i) {
+      return /padding/i.test(i.message || '');
+    }).length, 0, 'a repeated place name is not padding');
+    /* Twice is the name; three times is a habit. Suppressing every capitalised
+       phrase suppressed a long institutional name repeated three times in 300
+       words, which the HHA suite asserts is still worth saying out loud. */
+    var thrice = 'Chimps are tracked in East Africa, where reserves hold them. Hiking is best in East Africa in the dry season. Permits in East Africa cost less than gorilla permits.';
+    t.atLeast(FW.analyzer.analyze(thrice, {}).issues.filter(function (i) {
+      return /padding/i.test(i.message || '');
+    }).length, 1, 'but the same name three times does report');
+
+    /* A phrase that really is padding still is. */
+    var padded = 'At the end of the day the permit is the cost. At the end of the day the guide is the difference. At the end of the day you still have to walk.';
+    t.atLeast(FW.analyzer.analyze(padded, {}).issues.filter(function (i) {
+      return /padding/i.test(i.message || '');
+    }).length, 1, 'while a repeated filler phrase still reports');
     t.equal(a.meta.pov, 'second person', 'detects the requested point of view');
     t.equal(a.meta.readingLevel, 8, 'detects the target reading level');
     t.equal(a.meta.citationStyle, 'APA 7', 'detects the citation style');
@@ -663,6 +734,140 @@ async function run() {
     var diff = FW.paraphrase.diff('the quick brown fox', 'the slow brown fox jumps');
     t.ok(diff.some(function (d) { return d.type === 'del' && d.text === 'quick'; }), 'diff marks deletions');
     t.ok(diff.some(function (d) { return d.type === 'ins' && d.text === 'slow'; }), 'diff marks insertions');
+  });
+
+  /* Sentences from a published Horizon Guides field guide — a first-person
+     British travel piece, which is nothing like the template briefs the rest of
+     this file is built on. Every assertion below started as a rewrite the app
+     offered a writer to paste into a draft. */
+  await t.section('paraphraser — the substitution has to fit the slot', function () {
+    function all(src) {
+      return FW.paraphrase.MODES.map(function (m) {
+        return { mode: m.label, text: FW.paraphrase.paraphrase(src, m.id, 'fixed').text };
+      });
+    }
+    /* A connective standing immediately in front of a finite verb. */
+    var CONNECTIVE_BEFORE_VERB =
+      /\b(?:plus|too|as well|in addition|further|on top of that|still|so|but|though|and yet|which means|as a result|that said|nevertheless|consequently|accordingly|a lot|most of the time|as a rule|time and again)\s+(?:tends|has|have|had|is|are|was|were|betrays?|settles?|use|uses|used|ranks?|protects?|lacks?|requires?|operates?|harbours?)\b/i;
+
+    var alsoMid = 'It is every bit as worthwhile as gorilla trekking, but it also tends to be ' +
+      'more unpredictable and challenging for the visitors who go.';
+    all(alsoMid).forEach(function (r) {
+      t.notMatch(r.text, CONNECTIVE_BEFORE_VERB, r.mode + ': no clause connective in the adverb slot');
+      t.includes(r.text, 'also tends', r.mode + ': leaves "also tends" alone');
+    });
+
+    all('Mahale also has a thrillingly remote feel that few other parks can match today.')
+      .forEach(function (r) {
+        t.notMatch(r.text, CONNECTIVE_BEFORE_VERB, r.mode + ': no connective before "has"');
+        t.includes(r.text, 'also has', r.mode + ': leaves "also has" alone');
+      });
+
+    /* The guard is about position, not about the word: at the front of a clause
+       these alternatives are exactly right, and must still be offered. */
+    var alsoFront = FW.paraphrase.MODES.map(function (m) {
+      return FW.paraphrase.paraphrase('Also, carry plenty of drinking water and a few packaged snacks.',
+        m.id, 'fixed').text;
+    });
+    t.ok(alsoFront.some(function (x) { return !/^Also,/.test(x); }),
+      'a sentence-initial "also" is still substituted');
+
+    /* "One why for this is the location" — "why" is not a noun. */
+    all('One reason for this is the idyllic location of the park on the shore of Lake Tanganyika.')
+      .forEach(function (r) {
+        t.notMatch(r.text, /\bOne why\b/i, r.mode + ': does not put "why" in a noun slot');
+        t.match(r.text, /^One (?:reason|cause|basis|rationale|grounds|root)\b/i,
+          r.mode + ': keeps a noun at the head of the phrase');
+      });
+
+    /* "ranks high among" is not a claim about height. */
+    all('Mahale Mountains ranks high among my favourite African national parks for its scenery.')
+      .forEach(function (r) {
+        t.includes(r.text, 'ranks high among', r.mode + ': leaves "ranks high among" alone');
+        t.notMatch(r.text, /ranks (?:elevated|steep|considerable|big|towering)/i,
+          r.mode + ': no adjective synonym in an adverbial slot');
+      });
+
+    /* The guard reads what follows the adjective, so the same word is handled
+       both ways: in front of a noun it is still fair game, in front of a
+       preposition it is left alone. Without the pair, "skip every adjective"
+       would pass just as well. */
+    function everyMode(src) {
+      return FW.paraphrase.MODES.map(function (m) {
+        return FW.paraphrase.paraphrase(src, m.id, 'fixed').text;
+      });
+    }
+    var attributive = everyMode('Chimp tracking is a common excursion in the parks of the west.');
+    t.ok(attributive.some(function (x) { return !/a common excursion/.test(x); }),
+      'the same adjective in front of a noun is still substituted');
+    everyMode('Habituated communities are common across the forests of the west.')
+      .forEach(function (x) {
+        t.includes(x, 'common across', 'and left alone in front of a preposition');
+      });
+
+    /* Phrases belong at the edge of a clause, not in the adverb slot. */
+    all('Hiking boots are ideal, though I usually just use trail running shoes for the walk.')
+      .forEach(function (r) {
+        t.notMatch(r.text, /\bI (?:most of the time|as a rule|a lot|time and again) just\b/i,
+          r.mode + ': no adverb phrase wedged in before the verb');
+      });
+  });
+
+  await t.section('paraphraser — moving a clause leaves a sentence, not a run-on', function () {
+    var R = FW.paraphrase.rules;
+
+    /* Without the comma "although" attached itself to "harbour communities". */
+    var moved = R.moveClause('Although they are found across the rainforests of west Africa, ' +
+      'chimps are most easily tracked in East Africa where nine reserves harbour communities', Math.random);
+    t.ok(moved, 'the leading clause is still moved');
+    t.includes(moved.text, 'communities, although they are found',
+      'the moved clause is punctuated off from the main clause');
+    t.notMatch(moved.text, /communities although/, 'no run-on where the clause was appended');
+
+    /* The trailing branch already punctuated its move; both now agree. */
+    var fronted = R.moveClause('Pursuing them through the forest requires a fair level of fitness ' +
+      'because chimps are so much more mobile than gorillas', Math.random);
+    t.ok(fronted && /,\s/.test(fronted.text), 'the fronted clause keeps its comma too');
+
+    /* "Although Four of these locations" — a number word is not a proper noun. */
+    var recast = R.recastConjunction('Four of these locations are in Uganda, which is the ' +
+      'easiest destination for access, but there are also three in western Tanzania.');
+    t.ok(recast, '"but" is still recast');
+    t.includes(recast.text, 'Although four of these', 'a number word is lower-cased when it moves inward');
+    t.notMatch(recast.text, /Although Four/, 'no capital left stranded mid-sentence');
+
+    /* A genuine proper noun still keeps its capital. */
+    var proper = R.recastConjunction('Uganda is the most straightforward destination to reach, ' +
+      'but Tanzania rewards the extra effort it takes.');
+    t.ok(proper && /Although Uganda/.test(proper.text), 'a proper noun keeps its capital');
+  });
+
+  await t.section('paraphraser — cutting "which" leaves the verb a subject', function () {
+    var R = FW.paraphrase.rules;
+
+    /* "...are in Uganda. In practice this means is the most straightforward..." */
+    var sing = R.expandSentence('Four of these locations are in Uganda, which is the most ' +
+      'straightforward chimp-trekking destination in terms of access', Math.random);
+    t.ok(sing, 'the relationship is still made explicit');
+    t.notMatch(sing.text, /(?:means|because|that)\s+is\s/i, 'the verb is not left without a subject');
+    t.includes(sing.text, 'it is the most straightforward', 'a singular verb gets a singular subject');
+
+    var plur = R.expandSentence('Nine parks and reserves lie in East Africa, which are the ' +
+      'easiest places in the world to track a habituated community', Math.random);
+    t.ok(plur, 'the plural case is handled as well');
+    t.includes(plur.text, 'they are the easiest places', 'a plural verb gets a plural subject');
+
+    /* A verb it cannot supply a subject for is declined, not mangled. */
+    var odd = R.expandSentence('The trail climbs steadily through the forest, which thereafter ' +
+      'narrows to a single muddy track', Math.random);
+    t.ok(!odd || /\bit\b|\bthey\b/.test(odd.text),
+      'an unrecognised verb is declined rather than left stranded');
+
+    /* The "and" branch never needed a subject and must be untouched. */
+    var andBranch = R.expandSentence('Chimp tracking here runs as a community project, and the ' +
+      'success rate stands at around ninety per cent', Math.random);
+    t.ok(andBranch, 'the "and" branch still fires');
+    t.notMatch(andBranch.text, /means it the|because it the/i, 'no pronoun forced into the "and" branch');
   });
 
   await t.section('originality', function () {

@@ -76,7 +76,7 @@ window.FW = window.FW || {};
     cost: { pos: 'noun', neutral: ['price', 'expense'], formal: ['expenditure', 'outlay'], simple: ['price'], creative: ['bill'] },
     benefit: { pos: 'noun', neutral: ['advantage', 'gain'], formal: ['upside'], simple: ['plus'], creative: ['dividend'] },
     risk: { pos: 'noun', neutral: ['danger', 'exposure'], formal: ['hazard', 'liability'], simple: ['chance of trouble'], creative: ['gamble'] },
-    reason: { pos: 'noun', neutral: ['cause', 'basis'], formal: ['rationale', 'grounds'], simple: ['why'], creative: ['root'] },
+    reason: { pos: 'noun', neutral: ['cause', 'basis'], formal: ['rationale', 'grounds'], creative: ['root'] },
     goal: { pos: 'noun', neutral: ['aim', 'target'], formal: ['objective'], simple: ['point'], creative: ['destination'] },
     plan: { pos: 'noun', neutral: ['strategy', 'scheme'], formal: ['programme'], simple: ['idea'], creative: ['blueprint'] },
     example: { pos: 'noun', neutral: ['instance', 'case'], formal: ['illustration'], simple: ['case'], creative: ['specimen'] },
@@ -126,11 +126,11 @@ window.FW = window.FW || {};
     weak: { pos: 'adj', neutral: ['limited', 'slight'], formal: ['tenuous'], simple: ['poor'], creative: ['brittle'] },
 
     /* connectives that are safe to vary mid-sentence */
-    however: { pos: 'adv', neutral: ['but', 'though'], formal: ['nevertheless', 'that said'], simple: ['still'], creative: ['and yet'] },
-    therefore: { pos: 'adv', neutral: ['so', 'as a result'], formal: ['consequently', 'accordingly'], simple: ['so'], creative: ['which means'] },
+    however: { pos: 'adv', conjunctive: true, neutral: ['but', 'though'], formal: ['nevertheless', 'that said'], simple: ['still'], creative: ['and yet'] },
+    therefore: { pos: 'adv', conjunctive: true, neutral: ['so', 'as a result'], formal: ['consequently', 'accordingly'], simple: ['so'], creative: ['which means'] },
     often: { pos: 'adv', neutral: ['frequently', 'regularly'], formal: ['commonly'], simple: ['a lot'], creative: ['time and again'] },
     usually: { pos: 'adv', neutral: ['typically', 'generally'], formal: ['ordinarily'], simple: ['most of the time'], creative: ['as a rule'] },
-    also: { pos: 'adv', neutral: ['as well', 'too'], formal: ['in addition', 'further'], simple: ['plus'], creative: ['on top of that'] }
+    also: { pos: 'adv', conjunctive: true, neutral: ['as well', 'too'], formal: ['in addition', 'further'], simple: ['plus'], creative: ['on top of that'] }
   };
 
   /* ---- Phrase-level rewrites (wordiness → concision) ---- */
