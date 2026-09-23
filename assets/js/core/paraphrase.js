@@ -88,9 +88,20 @@ window.FW = window.FW || {};
     'engineers developers managers staff people person policy policies ' +
     'installation hardware software platform migration maintenance').split(' ');
 
+  /* A number word is never a proper noun, so the "assume a proper noun" bias
+     above has nothing to protect here. Left off the list, "Four of these
+     locations are in Uganda, but..." came back as "Although Four of these
+     locations are in Uganda, ..." with the capital still on. */
+  var NUMBER_WORDS = ('one two three four five six seven eight nine ten eleven twelve ' +
+    'thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty thirty ' +
+    'forty fifty sixty seventy eighty ninety hundred thousand million billion ' +
+    'dozen half quarter third fourth fifth sixth seventh eighth ninth tenth ' +
+    'once twice').split(' ');
+
   var STARTER_SET = {};
   SENTENCE_STARTERS.forEach(function (w) { STARTER_SET[w] = true; });
   COMMON_WORDS.forEach(function (w) { STARTER_SET[w] = true; });
+  NUMBER_WORDS.forEach(function (w) { STARTER_SET[w] = true; });
 
   /* Words seen in lower case anywhere in the source are safe to lower-case:
      if "solar" appears mid-sentence somewhere, "Solar" is not a proper noun. */
@@ -232,8 +243,13 @@ window.FW = window.FW || {};
   function moveClause(text, rnd) {
     var lead = text.match(/^(Because|Although|Though|While|When|If|Since|After|Before|Unless|Whereas|As)\s+([^,]{8,90}),\s+(.{10,})$/i);
     if (lead) {
+      /* Without the comma the moved clause reads as part of whatever ended the
+         main clause: "...reserves harbour communities although they are found
+         across west Africa" attaches "although" to "harbour". The trailing
+         branch below already punctuates its move; this one did not. */
       return {
-        text: upper(decap(lead[3].trim())) + ' ' + lead[1].toLowerCase() + ' ' + decap(lead[2].trim()),
+        text: upper(decap(lead[3].trim().replace(/[,;:]+$/, ''))) + ', ' +
+          lead[1].toLowerCase() + ' ' + decap(lead[2].trim()),
         note: 'moved the "' + lead[1].toLowerCase() + '" clause to the end'
       };
     }
@@ -290,11 +306,26 @@ window.FW = window.FW || {};
 
   /* Unpack a dense sentence by making an implicit relationship explicit. */
   function expandSentence(text, rnd) {
-    var m = text.match(/^(.{15,}?),\s+(?:and|which)\s+(.{12,})$/i);
+    var m = text.match(/^(.{15,}?),\s+(and|which)\s+(.{12,})$/i);
     if (m) {
       var connector = U.pick(['This matters because', 'The consequence is that', 'In practice this means'], rnd);
+      var rest = decap(m[3].trim());
+      /* "which" was the subject of the verb that follows it. Cutting it and
+         starting a new sentence left the verb with nothing in front of it:
+         "...are in Uganda. In practice this means is the most straightforward
+         destination". A new subject has to take its place, and it has to agree
+         with the verb that stranded. */
+      if (m[2].toLowerCase() === 'which') {
+        var verb = rest.match(/^([A-Za-z']+)/);
+        if (!verb) return null;
+        var plural = /^(?:are|were|have|do|include|comprise|remain|offer|give|run|cost|sit|lie|make|take|come|go)$/i;
+        var singular = /^(?:is|was|has|does|includes|comprises|remains|offers|gives|runs|costs|sits|lies|makes|takes|comes|goes)$/i;
+        if (plural.test(verb[1])) rest = 'they ' + rest;
+        else if (singular.test(verb[1])) rest = 'it ' + rest;
+        else return null;  /* not a verb we can supply a subject for */
+      }
       return {
-        text: m[1].replace(/[,\s]*$/, '') + '. ' + connector + ' ' + decap(m[2].trim()),
+        text: m[1].replace(/[,\s]*$/, '') + '. ' + connector + ' ' + rest,
         note: 'made an implied relationship explicit'
       };
     }
@@ -369,6 +400,10 @@ window.FW = window.FW || {};
    'will would can could should may might must')
     .split(' ').forEach(function (w) { AUXILIARIES[w] = true; });
 
+  /* Prepositions an adjective can be read through: past one of these the word
+     belongs to the verb's phrasing rather than to a following noun. */
+  var ADJ_PREP = /^\s+(?:among|amongst|above|over|of|for|to|with|than|by|into|across|through|against|about|on|in|at|from|between)\b/i;
+
   var DETERMINERS = {};
   ('the a an this that these those its his her their our your my no any each every')
     .split(' ').forEach(function (w) { DETERMINERS[w] = true; });
@@ -412,6 +447,20 @@ window.FW = window.FW || {};
       var entry = L.SYNONYMS[m[0].toLowerCase()];
       if (entry.pos === 'verb' && preceding && DETERMINERS[preceding[1].toLowerCase()]) continue;
 
+      /* A conjunctive adverb joins clauses, and so does everything offered in
+         its place. In the slot before a verb none of them is grammatical:
+         "it also tends to be" came back as "it plus tends to be", and "Mahale
+         also has" as "Mahale on top of that has". Only the front of a clause
+         takes them. */
+      if (entry.conjunctive && m.index !== 0) continue;
+
+      /* An adjective sitting straight in front of a preposition is not
+         modifying a noun — it is part of the verb's own phrasing. "ranks high
+         among my favourite parks" is not a claim about height, so the bank's
+         adjectives give back "ranks elevated among" and "ranks considerable
+         among". */
+      if (entry.pos === 'adj' && after !== '' && ADJ_PREP.test(text.slice(m.index + m[0].length))) continue;
+
       eligible.push({ word: m[0], index: m.index });
     }
     if (!eligible.length) return { text: text, notes: notes };
@@ -421,6 +470,15 @@ window.FW = window.FW || {};
     picks.sort(function (a, b) { return b.index - a.index; }).forEach(function (pick) {
       var entry = L.SYNONYMS[pick.word.toLowerCase()];
       var pool = (entry[reg] && entry[reg].length) ? entry[reg] : entry.neutral;
+      /* A phrase goes at the edge of a clause, not into the adverb slot before
+         a verb: "I usually just use trail shoes" must not become "I most of
+         the time just use trail shoes". */
+      if (entry.pos === 'adv' && pick.index !== 0) {
+        pool = pool.filter(function (c) { return c.indexOf(' ') === -1; });
+        if (!pool.length && entry.neutral) {
+          pool = entry.neutral.filter(function (c) { return c.indexOf(' ') === -1; });
+        }
+      }
       if (!pool || !pool.length) return;
       var choice = U.pick(pool, rnd);
       if (!choice || choice.toLowerCase() === pick.word.toLowerCase()) return;
