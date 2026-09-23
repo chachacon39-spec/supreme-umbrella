@@ -158,16 +158,27 @@ window.FW = window.FW || {};
       /* Say plainly when nothing applied, rather than presenting the input back
          as though it were a rewrite. */
       if (!result.changedSentences) {
+        /* Now that headings are passed over rather than rewritten, a selection
+           can hold no prose at all. Saying "nothing applied in these 0
+           sentences, try a different mode" would be untrue twice over: there
+           is nothing to apply anything to, and no mode would change that. */
+        var nothingToWorkOn = result.totalSentences === 0;
         out.appendChild(el('div', { class: 'empty', style: { marginBottom: '9px' } }, [
-          el('div', { text: 'Nothing to rewrite in ' + mode + ' mode.' }),
+          el('div', { text: nothingToWorkOn
+            ? 'No sentences to rewrite here.'
+            : 'Nothing to rewrite in ' + mode + ' mode.' }),
           el('div', { class: 'tiny dim', style: { marginTop: '6px' },
-            text: 'No passive voice, buried verbs, wordy constructions or movable clauses in these ' +
-              result.totalSentences + ' ' + U.pluralize(result.totalSentences, 'sentence') +
-              '. Try a different mode, or take it as a sign the passage is already tight.' })
+            text: nothingToWorkOn
+              ? 'This is a heading, or a line with no finished sentence in it. Select some prose and try again.'
+              : 'No passive voice, buried verbs, wordy constructions or movable clauses in these ' +
+                result.totalSentences + ' ' + U.pluralize(result.totalSentences, 'sentence') +
+                '. Try a different mode, or take it as a sign the passage is already tight.' })
         ]));
-        out.appendChild(el('div', { class: 'flex wrap' }, [
-          el('button', { class: 'btn btn-sm btn-ghost', text: 'Try another mode', onclick: run })
-        ]));
+        if (!nothingToWorkOn) {
+          out.appendChild(el('div', { class: 'flex wrap' }, [
+            el('button', { class: 'btn btn-sm btn-ghost', text: 'Try another mode', onclick: run })
+          ]));
+        }
         return;
       }
 

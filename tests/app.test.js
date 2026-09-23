@@ -131,6 +131,33 @@ async function run() {
       await page.waitForTimeout(500);
       t.atLeast(await page.locator('.pane-right .tool-out').count(), 2, 'the paraphraser produces output');
 
+      /* A heading is passed over rather than rewritten, so a selection can now
+         hold no prose at all. The panel used to answer that with "nothing
+         applied in these 0 sentences \u2014 try a different mode", which is untrue
+         twice: there is nothing to apply anything to, and no mode changes it. */
+      var headingOnly = await page.evaluate(function () {
+        var ed = document.querySelector('.editor');
+        var before = ed.innerHTML;
+        ed.innerHTML = '<p>Remote and picturesque Mahale Mountains in western Tanzania</p>';
+        ed.dispatchEvent(new InputEvent('input', { bubbles: true }));
+        return before;
+      });
+      await page.waitForTimeout(700);
+      await page.locator('.pane-right .btn', { hasText: 'Rewrite' }).click();
+      await page.waitForTimeout(500);
+      var emptyPanel = await page.locator('.pane-right').innerText();
+      t.includes(emptyPanel, 'No sentences to rewrite here',
+        'a line with no finished sentence says so plainly');
+      t.notIncludes(emptyPanel, '0 sentences', 'and does not report a count of zero');
+      t.notIncludes(emptyPanel, 'Try another mode', 'and offers no mode that would change it');
+
+      await page.evaluate(function (html) {
+        var ed = document.querySelector('.editor');
+        ed.innerHTML = html;
+        ed.dispatchEvent(new InputEvent('input', { bubbles: true }));
+      }, headingOnly);
+      await page.waitForTimeout(700);
+
       await page.locator('.pane-right .btn', { hasText: 'Run check' }).click();
       await page.waitForTimeout(700);
       t.includes(await page.locator('.pane-right').innerText(), 'overlap',
