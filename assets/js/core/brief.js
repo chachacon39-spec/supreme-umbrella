@@ -261,9 +261,30 @@ window.FW = window.FW || {};
   }
 
   /* ---- point of view ---- */
+  /* A point of view the brief refuses is not one it asks for. "We don't run
+     straight first-person/narrative accounts of your travel journey" put
+     "Write in first person" on the panel of a publication that rejects exactly
+     that, which would have steered the whole piece into a rejection. Read the
+     clause the phrase sits in before taking it as an instruction. */
+  var NEGATED = /\b(?:no|not|never|don'?t|doesn'?t|didn'?t|avoid|without|rather than|instead of|isn'?t|aren'?t|won'?t|nor)\b/i;
+
+  function mentionedPositively(text, pattern) {
+    var re = new RegExp(pattern.source, 'gi');
+    var m;
+    while ((m = re.exec(text)) !== null) {
+      var before = text.slice(Math.max(0, m.index - 80), m.index);
+      if (!NEGATED.test(before.split(/[.;:\n]/).pop())) return true;
+      if (m.index === re.lastIndex) re.lastIndex++;
+    }
+    return false;
+  }
+
   function findPOV(text) {
-    if (/\bfirst[- ]person\b|\bwrite as (?:i|me|we)\b|\bmy voice\b/i.test(text)) return 'first person';
-    if (/\bsecond[- ]person\b|\baddress the reader\b|\buse ["“]?you["”]?\b/i.test(text)) return 'second person';
+    var FIRST = /\bfirst[- ]person\b|\bwrite as (?:i|me|we)\b|\bmy voice\b/i;
+    var SECOND = /\bsecond[- ]person\b|\baddress the reader\b|\buse ["“]?you["”]?\b/i;
+    if (FIRST.test(text) && !mentionedPositively(text, FIRST)) return 'third person';
+    if (mentionedPositively(text, FIRST)) return 'first person';
+    if (mentionedPositively(text, SECOND)) return 'second person';
     if (/\bthird[- ]person\b|\bno first person\b|\bavoid ["“]?i["”]?\b/i.test(text)) return 'third person';
     return null;
   }
@@ -299,7 +320,10 @@ window.FW = window.FW || {};
 
   /* "Citations do not count toward the word count" tells the writer what is
      exempt. It reads as a prohibition to a regex and as nonsense to a human. */
-  var NOT_A_RULE_RE = /\bdo(?:es)? not count\b|\bare not (?:included|counted)\b|\bdo not apply\b|\b(?:is|are) not necessary\b|\b(?:is|are) not required\b|\bno need to\b/i;
+  /* "Don't be afraid to be contrary" is an encouragement wearing a negation.
+     Filed under prohibitions it reads as a ban on the very thing the market
+     says it is especially interested in. */
+  var NOT_A_RULE_RE = /\bdo(?:es)? not count\b|\bare not (?:included|counted)\b|\bdo not apply\b|\b(?:is|are) not necessary\b|\b(?:is|are) not required\b|\bno need to\b|\bdo(?:n'?t| not) (?:be afraid|hesitate|worry|shy away)\b/i;
 
   /* "Task #474-D -(300 words) Blog post that..." is the assignment, not a
      guideline about it. */

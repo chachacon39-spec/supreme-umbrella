@@ -291,6 +291,59 @@ async function run() {
     t.notMatch(digest.summary, /back to BIM/, 'and is not used as a summary sentence at all');
     t.notMatch(digest.tldr, /back to BIM/, 'including as the one-line version');
     t.atLeast(FW.util.wordCount(digest.summary), 12, 'while the prose sentences still make a summary');
+
+    /* A third market page, and a published guide by one of its authors. */
+
+    /* "We don't run straight first-person/narrative accounts of your travel
+       journey" put "Write in first person" on the panel of a publication that
+       rejects exactly that. A refused point of view is not a requested one. */
+    t.equal(parse('We don\u2019t run straight first-person/narrative accounts of your travel journey.').meta.pov,
+      'third person', 'a refused point of view is not the one to write in');
+    t.equal(parse('Write the piece in first person.').meta.pov, 'first person', 'a requested one still is');
+    t.equal(parse('Address the reader directly in second person.').meta.pov, 'second person', 'and so is second person');
+    t.equal(parse('Avoid first person throughout.').meta.pov, 'third person', 'an instruction to avoid it reads as third');
+
+    /* "Don't be afraid to be contrary" is an encouragement wearing a negation,
+       and it was filed as a ban on the thing the market says it most wants. */
+    var contrary = parse('* Don\u2019t be afraid to be contrary: if your story goes against the grain of mainstream travel writing we are especially interested.');
+    var banned2 = ((contrary.instructions && contrary.instructions.forbidden) || [])
+      .map(function (i) { return String(i && i.text ? i.text : i); }).join(' | ');
+    t.notMatch(banned2, /afraid to be contrary/i, 'an encouragement is not a prohibition');
+
+    /* The locale rule matched whole words only, so a lexicon holding "colour"
+       said nothing about "colourful" and one holding "organised" said nothing
+       about "organisation". A British-authored guide got an arbitrary one of its
+       seven British spellings flagged, which is worse than none: the writer
+       concludes the six unflagged ones are American. */
+    function localeFlags(text, language) {
+      return FW.analyzer.analyze(text, { language: language }).issues
+        .filter(function (i) { return i.rule && i.rule.indexOf('locale-') === 0; })
+        .map(function (i) { return String(i.excerpt).toLowerCase(); });
+    }
+    var british = 'Nine reserves harbour habituated communities. My favourite park is well-organised, with colourful birds and a neighbour to the south. I specialised in the region and recorded every vocalisation.';
+    var flagged = localeFlags(british, 'en-US').join(' ');
+    ['harbour', 'favourite', 'colourful', 'neighbour', 'specialised', 'vocalisation'].forEach(function (w) {
+      t.includes(flagged, w, 'en-US flags ' + w);
+    });
+    t.equal(localeFlags(british, 'en-GB').length, 0, 'and en-GB flags none of it');
+
+    /* The reverse map is not the inverse of the forward one: several American
+       forms are ordinary British words with other meanings, so mirroring the
+       list wholesale had en-GB correcting "check" to "cheque". */
+    t.equal(localeFlags('Please check the gas meter before you tire of it, and curb the urge to park on the curb among friends.', 'en-GB').length, 0,
+      'check, meter, tire, curb and among are not British misspellings');
+
+    /* "in East Africa", twice in a guide to chimp trekking in East Africa, was
+       reported as padding. A name is repeated because it is the name. */
+    var place = 'Chimps are most easily tracked in East Africa, where nine reserves hold them. Hiking is best in the dry season in East Africa, which varies by region.';
+    t.equal(FW.analyzer.analyze(place, {}).issues.filter(function (i) {
+      return /padding/i.test(i.message || '');
+    }).length, 0, 'a repeated place name is not padding');
+    /* A phrase that really is padding still is. */
+    var padded = 'At the end of the day the permit is the cost. At the end of the day the guide is the difference. At the end of the day you still have to walk.';
+    t.atLeast(FW.analyzer.analyze(padded, {}).issues.filter(function (i) {
+      return /padding/i.test(i.message || '');
+    }).length, 1, 'while a repeated filler phrase still reports');
     t.equal(a.meta.pov, 'second person', 'detects the requested point of view');
     t.equal(a.meta.readingLevel, 8, 'detects the target reading level');
     t.equal(a.meta.citationStyle, 'APA 7', 'detects the citation style');

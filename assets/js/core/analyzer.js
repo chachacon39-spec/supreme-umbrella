@@ -879,6 +879,16 @@ window.FW = window.FW || {};
          the full names are compared at the window that reaches their ends. */
       var after = text.slice(slice[2].end, slice[2].end + 3);
       if (/^[A-Z]/.test(text.charAt(slice[2].start)) && /^\s+[A-Z]/.test(after)) continue;
+      /* A place or product name is repeated because that is its name. "in East
+         Africa", twice in a guide to chimp trekking in East Africa, was reported
+         as padding — and no travel or product piece can avoid saying where it is
+         set or what it is about. Two capitalised words running is a name. */
+      var run = 0, named = false;
+      for (var c = 0; c < 3 && !named; c++) {
+        run = /^[A-Z]/.test(text.charAt(slice[c].start)) ? run + 1 : 0;
+        if (run >= 2) named = true;
+      }
+      if (named) continue;
       /* The scanner reads letters only, so "at least 120 hours" and "at least
          20 hours" both arrive as at/least/hours and collide. The digits sit in
          the gaps between the words, so put them back into the key. */
