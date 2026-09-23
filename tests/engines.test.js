@@ -190,7 +190,10 @@ async function run() {
        the basis of qualification" is telling the writer what they may skip. It
        was filed as a prohibition because it contains "do not select" — which is
        the editor's own behaviour, not an instruction. */
-    var optional = parse('Clips: Are not necessary to send along with a story pitch. We do not select pitches on the basis of qualification.');
+    /* It has to be tested as a bullet. A non-bulleted line is sentence-split,
+       which separates "not necessary" from the "do not select" that trips the
+       prohibition reader, so the prose form never reproduced the fault. */
+    var optional = parse('* Clips: Are not necessary to send along with a story pitch. We may ask you for examples of past work but do not select story pitches on the basis of qualification.');
     var banned = ((optional.instructions && optional.instructions.forbidden) || [])
       .map(function (i) { return String(i && i.text ? i.text : i); }).join(' | ');
     t.notMatch(banned, /not necessary/i, 'being told something is optional is not a prohibition');
