@@ -765,7 +765,12 @@ window.FW = window.FW || {};
     var wc = findWordCount(normalized);
     var deadline = findDeadline(normalized);
     var keywords = findKeywords(normalized);
-    var instructions = findInstructions(text);
+    /* Everything else on this page reads the normalised copy; this one read the
+       raw text, so a typographic apostrophe defeated it. "We don't produce
+       general destination guides" — as a web page actually writes it, with
+       U+2019 — matched none of the negation patterns, and the prohibition went
+       unrecorded. A pasted brief is full of curly apostrophes. */
+    var instructions = findInstructions(normalized);
     var structure = findStructure(normalized);
     var suggestions = suggestPersona(String(task.title || '') + '\n' + normalized);
 

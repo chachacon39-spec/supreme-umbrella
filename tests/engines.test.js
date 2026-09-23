@@ -305,6 +305,16 @@ async function run() {
 
     /* "Don't be afraid to be contrary" is an encouragement wearing a negation,
        and it was filed as a ban on the thing the market says it most wants. */
+    /* Written with the typographic apostrophe a web page actually uses. The
+       instruction reader was handed the raw text while everything else on the
+       page read the normalised copy, so U+2019 defeated every negation pattern
+       and "We don't produce general destination guides" was not recorded as a
+       prohibition at all. */
+    t.atLeast(((parse('* We don\u2019t produce general destination guides.').instructions || {}).forbidden || []).length, 1,
+      'a curly apostrophe does not hide a prohibition');
+    t.atLeast(((parse("* We don't produce general destination guides.").instructions || {}).forbidden || []).length, 1,
+      'and a straight one still does not either');
+
     var contrary = parse('* Don\u2019t be afraid to be contrary: if your story goes against the grain of mainstream travel writing we are especially interested.');
     var banned2 = ((contrary.instructions && contrary.instructions.forbidden) || [])
       .map(function (i) { return String(i && i.text ? i.text : i); }).join(' | ');
