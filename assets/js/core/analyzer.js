@@ -89,6 +89,38 @@ window.FW = window.FW || {};
     return { isProtected: isProtected };
   }
 
+  /* Every pair of spellings naming the same word, taken from the locale tables
+     themselves so the two cannot drift apart. Built once, on first use. */
+  var VARIANT_PAIRS = null;
+  function variantPairs() {
+    if (VARIANT_PAIRS) return VARIANT_PAIRS;
+    var seen = {};
+    VARIANT_PAIRS = [];
+    (FW.resources.LANGUAGES || []).forEach(function (l) {
+      if (!/^en/.test(l.code || '')) return;
+      Object.keys(l.spelling || {}).forEach(function (from) {
+        var to = l.spelling[from];
+        if (!to || from === to) return;
+        var key = [from, to].sort().join('|');
+        if (seen[key]) return;
+        seen[key] = true;
+        VARIANT_PAIRS.push([from, to]);
+      });
+    });
+    return VARIANT_PAIRS;
+  }
+
+  /* Whole-word occurrences of one word, as offsets. */
+  function wordAt(text, word) {
+    var re = new RegExp('\\b' + word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'gi');
+    var at = [], m;
+    while ((m = re.exec(text)) !== null) {
+      at.push(m.index);
+      if (m.index === re.lastIndex) re.lastIndex++;
+    }
+    return at;
+  }
+
   function analyze(text, opts) {
     text = String(text || '');
     opts = opts || {};
@@ -171,6 +203,32 @@ window.FW = window.FW || {};
           new RegExp('\\b' + from + '\\b', 'gi'),
           lang.label + ' spelling prefers “' + to + '”.',
           function (m) { return matchCase(m[0], to); });
+      });
+
+      /* A draft that spells the same word two ways is wrong against every
+         standard, so this one does not depend on which locale is set — and
+         that is the point. A published essay used "land defense" four times
+         and "land defence" once, its own central term. Writing American, the
+         checker flagged the single British spelling; writing British, the four
+         American ones; writing Canadian, where both forms are at home, it said
+         nothing at all — and Canadian is the setting that writer would have
+         chosen. Knowing a market's locale is a guess. Knowing the draft
+         disagrees with itself is not. */
+      variantPairs().forEach(function (pair) {
+        var a = wordAt(text, pair[0]), b = wordAt(text, pair[1]);
+        if (!a.length || !b.length) return;
+        /* Point at the form used less often: the odd one out is the one the
+           writer will want to change, whichever standard they work to. */
+        var oddFirst = a.length <= b.length;
+        var odd = oddFirst ? a : b, oddWord = oddFirst ? pair[0] : pair[1];
+        var keptWord = oddFirst ? pair[1] : pair[0], keptCount = oddFirst ? b.length : a.length;
+        add({
+          rule: 'spelling-inconsistent', type: 'spelling', severity: 'warning',
+          start: odd[0], end: odd[0] + oddWord.length,
+          message: 'Spelled both ways in this draft: “' + oddWord + '” ' + odd.length +
+            ' and “' + keptWord + '” ' + keptCount + '. Pick one and use it throughout.',
+          fix: matchCase(text.slice(odd[0], odd[0] + oddWord.length), keptWord)
+        });
       });
     }
 

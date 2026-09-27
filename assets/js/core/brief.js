@@ -7,7 +7,10 @@ window.FW = window.FW || {};
 
   var FORMATS = [
     ['listicle', /\blistic[l]?e\b|\btop\s+\d+\b|\b\d+\s+(?:ways|tips|reasons|things|ideas|tools)\b/i],
-    ['how-to guide', /\bhow[- ]to\b|\bstep[- ]by[- ]step\b|\btutorial\b|\bwalkthrough\b/i],
+    /* Every guidelines page explains how to pitch, so a bare "how to" made the
+       deliverable a how-to guide on four markets in a row. The submission
+       process is not the commission. */
+    ['how-to guide', /\bhow[- ]to\b(?!\s+(?:pitch|submit|apply|contribute|send|join|become|reach|contact|get in touch|work with us|write (?:for|to) us)\b)|\bstep[- ]by[- ]step\b|\btutorial\b|\bwalkthrough\b/i],
     ['product review', /\breview\b|\bhands[- ]on\b|\bunboxing\b|\bverdict\b/i],
     ['comparison', /\bvs\.?\b|\bversus\b|\bcomparison\b|\bhead[- ]to[- ]head\b|\bbuyer'?s guide\b/i],
     ['case study', /\bcase stud(?:y|ies)\b/i],
@@ -349,8 +352,15 @@ window.FW = window.FW || {};
       });
   }
 
+  /* A line that introduces the bullets under it as examples or subject areas
+     rather than as rules. "The pieces we publish often focus on things like"
+     is a menu: a piece picks one of the twelve bullets beneath it, and filing
+     each as a requirement gave a single article twelve compliance rows it
+     could never all satisfy. */
+  var MENU_LEAD_RE = /\b(?:things like|such as|for example|for instance|e\.?g\.?|(?:topics?|subjects?|areas?|themes?|issues?|beats?)\s+(?:we|include|like|such|cover|covered)|often (?:focus|write|publish|cover)|we (?:often )?(?:focus|write|publish|cover)\w*\s+(?:on|about))\b[^.\n]{0,40}$/i;
+
   function findInstructions(text) {
-    var required = [], forbidden = [];
+    var required = [], forbidden = [], topics = [];
 
     function file(t, bullet) {
       t = t.trim();
@@ -366,8 +376,19 @@ window.FW = window.FW || {};
       if (bullet || REQUIRE_RE.test(c)) required.push(t);
     }
 
+    var inMenu = false;
     splitInstructions(text).forEach(function (line) {
       var t = line.text.trim();
+      /* The lead-in governs the bullet run that follows it, and any prose line
+         in between ends the run. Only the flag is set here — the line itself
+         still goes through everything below, or the task-line handling and the
+         long-bullet split are skipped for every unbulleted line in the brief. */
+      if (!line.bullet) {
+        inMenu = MENU_LEAD_RE.test(t.replace(/[:\s]+$/, ''));
+      } else if (inMenu) {
+        if (t.length > 2) topics.push(t);
+        return;
+      }
       /* Pasted without a blank line before it, the assignment rides along on
          the last bullet, and the whole task is filed as a rule about the
          submission format: "...font family Calibri Task #474-D -(300 words)
@@ -391,7 +412,13 @@ window.FW = window.FW || {};
       }
       file(t, line.bullet);
     });
-    return { required: U.unique(required).slice(0, 40), forbidden: U.unique(forbidden).slice(0, 25) };
+    return {
+      required: U.unique(required).slice(0, 40),
+      forbidden: U.unique(forbidden).slice(0, 25),
+      /* Kept, so the subject areas are not lost — but not as requirements, so
+         they raise no row the draft is scored against. */
+      topics: U.unique(topics).slice(0, 40)
+    };
   }
 
   /* ---- banned terms stated explicitly ---- */
@@ -1010,7 +1037,16 @@ window.FW = window.FW || {};
     if (!meta.audience) gaps.push('Audience is unstated. Ask who the reader is; it changes everything downstream.');
     if (!meta.tone.length) gaps.push('No tone specified — propose one and have the client confirm.');
     if (!meta.format) gaps.push('Deliverable format is ambiguous (article? memo? script?).');
-    if (!instructions.required.length) gaps.push('The brief contains no explicit instructions — this is a scope-creep risk. Write your own spec and get sign-off.');
+    /* The subject areas are worth saying once. As twelve requirements they were
+       twelve rows a single piece could never all meet; as nothing at all the
+       writer would not know the outlet had named them. */
+    if (instructions.topics && instructions.topics.length) {
+      gaps.push('The brief lists ' + instructions.topics.length + ' subject areas it covers rather than ' +
+        'requirements for one piece — pick the one your story is about: ' +
+        instructions.topics.slice(0, 6).join('; ') +
+        (instructions.topics.length > 6 ? '; and ' + (instructions.topics.length - 6) + ' more.' : '.'));
+    }
+    if (!instructions.required.length && !(instructions.topics || []).length) gaps.push('The brief contains no explicit instructions — this is a scope-creep risk. Write your own spec and get sign-off.');
     if (!meta.citationStyle && /\bsource|\bcite|\bstudy|\bdata\b/i.test(JSON.stringify(meta))) {
       gaps.push('Sources are expected but no citation style is named — ask which one.');
     }
