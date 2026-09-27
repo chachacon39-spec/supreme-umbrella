@@ -1210,6 +1210,105 @@ async function run() {
       'and so is a step-by-step walkthrough');
   });
 
+  /* 5 Prince Publishing's submission page — a book publisher, where the unit of
+     work is a 50,000-word manuscript rather than an article, and where the page
+     states its length eleven times without ever writing the word "words". */
+  await t.section('brief parsing — a length stated without the unit', function () {
+    function wc(text) { return FW.brief.analyze({ title: 'x', brief: text }).meta.wordCount; }
+
+    /* The number that decides whether a submission is read at all. */
+    var band = wc('Manuscripts must be at least 50,000 (not to exceed 90,000)');
+    t.ok(band, 'a manuscript length with no unit is read at all');
+    t.equal(band.min, 50000, 'the floor is read');
+    t.equal(band.max, 90000, 'and so is the ceiling');
+
+    /* With the unit present the ceiling test ran first and returned, so the
+       floor was lost and a 20,000-word manuscript passed a 90,000 cap. */
+    var withUnit = wc('Manuscripts must be at least 50,000 words (not to exceed 90,000 words)');
+    t.equal(withUnit.min, 50000, 'a floor and a ceiling in one sentence is a band, not just a cap');
+    t.equal(withUnit.max, 90000, 'with both bounds kept');
+
+    t.equal(wc('Length: 50,000-90,000').min, 50000, 'a bare range under a Length label is read');
+    t.equal(wc('Manuscripts must be 50k to 90k').max, 90000, 'and so is "50k to 90k"');
+    t.equal(wc('Manuscripts must be at least 50,000').min, 50000, 'a floor on its own is read');
+    t.ok(wc('Manuscripts must be at least 50,000').floor, 'and is marked as a floor');
+
+    /* The same page says authors must be over 18 and characters over 50. The
+       unit can only be dropped where the line says what is being measured and
+       the figure is the size of a manuscript. */
+    t.equal(wc('Submissions are accepted by authors over 18 years old.'), null,
+      'an age is not a word count');
+    t.equal(wc('Main characters in the story must be over 50-years-old.'), null,
+      'nor is a character\u2019s age');
+    t.equal(wc('CONTEMPORARY 50+ ROMANCE (STAND ALONE)'), null, 'nor is a category label');
+    t.equal(wc('Manuscripts accepted between 2024 and 2025 will be considered.'), null,
+      'nor is a pair of years beside the word manuscript');
+    t.equal(wc('The manuscript runs to pages 100-200 of the collection.'), null,
+      'nor a page range');
+
+    /* The cue has to be read on the figure's own line. One mention of
+       "manuscript" at the top of a page must not license every bare pair of
+       numbers below it — otherwise a date of birth becomes the word count. */
+    var elsewhere = 'Manuscripts must be at least 50,000 words.\nAuthors born 1960-1975 are eligible.';
+    t.equal(wc(elsewhere).min, 50000, 'a cue on another line does not turn a year range into a length');
+    t.ok(wc(elsewhere).floor, 'and the real floor is what comes back');
+
+    /* Rejecting one candidate must not end the search. The sample brief names an
+       audience "aged 35-60" two lines above its real length. */
+    var sample = 'Audience: suburban homeowners aged 35-60\nLength: 1,200-1,500 words.';
+    var found = wc(sample);
+    t.equal(found.min, 1200, 'an age range earlier in the brief does not hide the real length');
+    t.equal(found.max, 1500, 'and the real range is read whole');
+  });
+
+  await t.section('brief parsing — "due to" is not a due date', function () {
+    function dl(text) { return FW.brief.analyze({ title: 'x', brief: text }).meta.deadline; }
+    /* The panel showed a due-date row reading "to the number of submissions we
+       receive," on a page with no deadline anywhere in it. */
+    t.equal(dl('Due to the number of submissions we receive, it may take up to a month.'), null,
+      '"due to" is a cause, not a date');
+    t.equal(dl('Due to high volume we cannot reply to everyone.'), null,
+      'and so is a second one');
+    /* Real deadlines still read. */
+    t.equal(dl('Copy is due 14 March 2026.').date, '2026-03-14', 'a real due date still reads');
+    t.ok(dl('Due: Friday 20 March.'), 'and so does a labelled one');
+    t.ok(dl('Deadline: 3 April 2026.'), 'and so does a deadline');
+  });
+
+  await t.section('brief parsing — a shouted category heading is a heading', function () {
+    function req(text) { return FW.brief.analyze({ title: 'x', brief: text }).instructions.required; }
+    /* One of eleven headings leaked into the requirements, because "must"
+       appears inside its parenthetical and not in the other ten. */
+    var r = req('CONTEMPORARY ROCK STAR ROMANCE (One of the main characters must be a rock star)\n' +
+      'Manuscripts must be at least 50,000');
+    t.notIncludes(r.join(' | '), 'CONTEMPORARY ROCK STAR', 'a shouted heading is not a requirement');
+    t.includes(r.join(' | '), 'at least 50,000', 'and the rule under it still is');
+
+    /* The other ten headings behave the same way, which they did not before. */
+    ['CONTEMPORARY ROMANCE (STAND ALONE AND SERIES)',
+     'CONTEMPORARY 50+ ROMANCE (STAND ALONE)',
+     'PARANORMAL ROMANCE (not horror)',
+     'HISTORICAL ROMANCE ( 20th Century, American, Highlander, Medieval)'].forEach(function (h) {
+      t.equal(req(h + '\nStories must include an HEA ending.').length, 1,
+        JSON.stringify(h.slice(0, 28)) + ' is a heading, not a rule');
+    });
+
+    /* An ordinary sentence in capitals is still a rule: "We are ONLY accepting
+       submissions listed below" has lower case in it and must come through. */
+    t.atLeast(req('We do NOT accept non-fiction, short stories, poetry, or memoirs.').length +
+      FW.brief.analyze({ title: 'x', brief: 'We do NOT accept non-fiction or poetry.' })
+        .instructions.forbidden.length, 1, 'a shouted word inside a sentence is not a heading');
+    t.includes(req('PLEASE INCLUDE A SYNOPSIS\nSubmissions must include a one-page synopsis.').join(' '),
+      'one-page synopsis', 'the rule under a shouted instruction still reads');
+
+    /* A heading is short. A long line in capitals is a rule that happens to be
+       shouted, and swallowing it would lose an actual requirement. */
+    var shoutedRule = 'ALL SUBMISSIONS MUST INCLUDE A ONE-PAGE SYNOPSIS AND THREE SAMPLE CHAPTERS';
+    t.includes(req(shoutedRule).join(' | '), 'ONE-PAGE SYNOPSIS',
+      'a long line in capitals is a rule, not a heading');
+    t.equal(req('CONTEMPORARY ROMANCE').length, 0, 'while a short one is a heading');
+  });
+
   await t.section('originality', function () {
     var source = 'The payback period for a residential solar installation in Texas typically falls ' +
       'between seven and eleven years, according to the National Renewable Energy Laboratory.';

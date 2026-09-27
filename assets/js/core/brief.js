@@ -71,25 +71,84 @@ window.FW = window.FW || {};
   function num(s) { return parseInt(String(s).replace(/[,\s]/g, ''), 10); }
 
   /* ---- word count ---- */
+  /* A book publisher states length without the unit — "Manuscripts must be at
+     least 50,000 (not to exceed 90,000)" needs no "words" to be unambiguous to
+     a novelist. Every pattern below required one, so the number that decides
+     whether a submission is read at all came back null eleven times over and
+     the panel told the writer to go and ask for it.
+     Dropping the unit is only safe where the sentence names the thing being
+     measured and the figure is the size of a manuscript: the same document says
+     authors must be "over 18 years old" and characters "over 50-years-old",
+     which must not become word counts. */
+  var LENGTH_CUE = /\b(?:manuscripts?|word[- ]?count|wordcount|length|novels?|novellas?|books?|chapters?|mss?)\b/i;
+
+  /* The line the figure sits on, so that one mention of "manuscript" at the top
+     of a page does not license every bare number below it. */
+  function lineAround(text, index) {
+    var from = Math.max(text.lastIndexOf('\n', index), text.lastIndexOf('. ', index)) + 1;
+    var nl = text.indexOf('\n', index), stop = text.indexOf('. ', index);
+    var to = nl === -1 ? text.length : nl;
+    if (stop !== -1 && stop < to) to = stop;
+    return text.slice(from, to);
+  }
+
+  function unitOk(m, value, text) {
+    if (/\bwords?\b/i.test(m[0])) return true;
+    return value >= 1000 && LENGTH_CUE.test(lineAround(text, m.index));
+  }
+
+  /* Rejecting a match must not end the search. With the unit optional, the first
+     thing the range pattern found in the sample brief was "aged 35-60" — an
+     audience, not a length. Gating that with String.match in hand threw the whole
+     search away, so the real "1,200-1,500 words" two lines below was never
+     reached, and the brief came back with a 1,425-1,650 band built from the bare
+     number instead of the range the client wrote. */
+  function findLength(text, re, scale) {
+    var rx = new RegExp(re.source, re.flags.indexOf('g') === -1 ? re.flags + 'g' : re.flags);
+    var m;
+    while ((m = rx.exec(text)) !== null) {
+      /* "50k" captures 50, which is nowhere near the size of a manuscript until
+         the multiplier is applied, so the gate has to see the scaled figure. */
+      if (unitOk(m, num(m[1]) * (scale || 1), text)) return m;
+      if (m.index === rx.lastIndex) rx.lastIndex++;
+    }
+    return null;
+  }
+
   function findWordCount(text) {
+    /* A floor and a ceiling in the same sentence are a band. The ceiling test
+       below runs first by design, so "at least 50,000 (not to exceed 90,000)"
+       gave back a 90,000 cap and no minimum — and a 20,000-word manuscript
+       passed a check the publisher would have deleted it for. */
+    var band = findLength(text, /(?:at least|minimum(?: of)?|no fewer than|min\.?)\s*(\d[\d,]{1,7})\s*(?:words?\b)?[^.\n]{0,24}?(?:no (?:more|longer|greater) than|not (?:to )?exceed(?:ing)?|at most|maximum(?: of)?|up to|max\.?)\s*(\d[\d,]{1,7})\s*(?:words?\b)?/i);
+    if (band) {
+      return { min: num(band[1]), max: num(band[2]), raw: band[0].trim() };
+    }
     /* "between 1,500 and 1,800 words" joins its bounds with a word, not a dash,
        so the range test missed it and the single-number branch below built a
        band around 1,800 that ran to 1,980 — 180 words past the client's cap. */
     var between = text.match(/\bbetween\s+(\d[\d,]{1,7})\s+and\s+(\d[\d,]{1,7})\s*words?\b/i);
     if (between) return { min: num(between[1]), max: num(between[2]), raw: between[0] };
-    var range = text.match(/(\d[\d,]{1,7})\s*(?:-|–|—|to)\s*(\d[\d,]{1,7})\s*(?:\+)?\s*words?\b/i);
-    if (range) return { min: num(range[1]), max: num(range[2]), raw: range[0] };
+    var range = findLength(text, /(\d[\d,]{1,7})\s*(?:-|–|—|to)\s*(\d[\d,]{1,7})\s*(?:\+)?(?:\s*words?\b)?/i);
+    if (range) {
+      return { min: num(range[1]), max: num(range[2]), raw: range[0].trim() };
+    }
+    /* "50k to 90k" is how a novelist says it out loud. */
+    var kRange = findLength(text, /\b(\d{1,3})\s*k\s*(?:-|–|—|to)\s*(\d{1,3})\s*k\b/i, 1000);
+    if (kRange) {
+      return { min: num(kRange[1]) * 1000, max: num(kRange[2]) * 1000, raw: kRange[0].trim() };
+    }
     /* A ceiling is not a target. "No longer than 300 words" means 300 is the
        wall, so a centred band around it would send the writer over. It is
        tested before the floor below so that "no more than" stays a cap. */
-    var atMost = text.match(/(?:no (?:more|longer|greater) than|not (?:to )?exceed(?:ing)?|at most|maximum(?: of)?|under|up to|within|max\.?)\s*(\d[\d,]{1,7})\s*words?\b/i);
+    var atMost = findLength(text, /(?:no (?:more|longer|greater) than|not (?:to )?exceed(?:ing)?|at most|maximum(?: of)?|under|up to|within|max\.?)\s*(\d[\d,]{1,7})(?:\s*words?\b)?/i);
     if (atMost) return { min: null, max: num(atMost[1]), raw: atMost[0], ceiling: true };
     /* And a floor is not a target either. A market whose rate is quoted for
        "reported longform (>2,000 words)" fell through to the single-number
        branch below, which built a band of 1,900-2,200 around it: the writer is
        told to file 1,900 words, under the market's own minimum and under the
        length the rate is paid for. */
-    var atLeast = text.match(/(?:at least|minimum(?: of)?|no fewer than|min\.?|more than|over|upwards of|north of|>=|\u2265|>)\s*(\d[\d,]{1,7})\s*words?\b/i);
+    var atLeast = findLength(text, /(?:at least|minimum(?: of)?|no fewer than|min\.?|more than|over|upwards of|north of|>=|\u2265|>)\s*(\d[\d,]{1,7})(?:\s*words?\b)?/i);
     if (atLeast) return { min: num(atLeast[1]), max: null, raw: atLeast[0], floor: true };
     var orMore = text.match(/(\d[\d,]{1,7})\s*(?:\+\s*words?\b|words?\s+(?:or\s+more|and\s+up|plus)\b)/i);
     if (orMore) return { min: num(orMore[1]), max: null, raw: orMore[0], floor: true };
@@ -97,6 +156,8 @@ window.FW = window.FW || {};
     if (orFewer) return { min: null, max: num(orFewer[1]), raw: orFewer[0], ceiling: true };
     var about = text.match(/(?:approx(?:imately)?\.?|around|about|roughly|~)\s*(\d[\d,]{1,7})\s*words?\b/i);
     if (about) { var n = num(about[1]); return { min: Math.round(n * 0.9), max: Math.round(n * 1.1), raw: about[0] }; }
+    /* The branches below stay unit-required on purpose: with the unit optional,
+       a bare number anywhere in a brief would become its length. */
     var exact = text.match(/(\d[\d,]{2,7})\s*(?:\+)?\s*words?\b/i);
     if (exact) { var e = num(exact[1]); return { min: Math.round(e * 0.95), max: Math.round(e * 1.1), raw: exact[0] }; }
     var wc = text.match(/\bword count\s*[:\-]?\s*(\d[\d,]{2,7})/i);
@@ -147,7 +208,11 @@ window.FW = window.FW || {};
       var dt = new Date(yr + '-' + String(mon).padStart(2, '0') + '-' + String(day).padStart(2, '0'));
       if (!isNaN(dt.getTime())) return { raw: slash[0], date: yr + '-' + String(mon).padStart(2, '0') + '-' + String(day).padStart(2, '0') };
     }
-    var rel = text.match(/\b(?:due|deadline|deliver(?:y)?|submit(?:ted)? by|needed by)\s*[:\-]?\s*([^\n.;]{3,40})/i);
+    /* "Due to the number of submissions we receive, it may take up to a month"
+       became the deadline, and the panel showed a due-date row reading "to the
+       number of submissions we receive,". There is no deadline anywhere in that
+       document. "Due to" and "due in part to" are causes, not dates. */
+    var rel = text.match(/\b(?:due(?! to\b)|deadline|deliver(?:y)?|submit(?:ted)? by|needed by)\s*[:\-]?\s*([^\n.;]{3,40})/i);
     if (rel) return { raw: rel[0].trim(), date: null, note: rel[1].trim() };
     return null;
   }
@@ -359,6 +424,16 @@ window.FW = window.FW || {};
      could never all satisfy. */
   var MENU_LEAD_RE = /\b(?:things like|such as|for example|for instance|e\.?g\.?|(?:topics?|subjects?|areas?|themes?|issues?|beats?)\s+(?:we|include|like|such|cover|covered)|often (?:focus|write|publish|cover)|we (?:often )?(?:focus|write|publish|cover)\w*\s+(?:on|about))\b[^.\n]{0,40}$/i;
 
+  /* Upper case outside any bracketed aside, no terminal punctuation, and short
+     enough to be a label rather than a sentence. */
+  function isShoutedHeading(t) {
+    var bare = String(t).replace(/\([^)]*\)/g, ' ').trim();
+    if (!bare || bare.length > 70) return false;
+    if (/[.!?]$/.test(bare)) return false;
+    if (!/[A-Z]/.test(bare)) return false;
+    return !/[a-z]/.test(bare);
+  }
+
   function findInstructions(text) {
     var required = [], forbidden = [], topics = [];
 
@@ -366,6 +441,13 @@ window.FW = window.FW || {};
       t = t.trim();
       if (t.length < 4) return;
       if (/^(?:tone|audience|word count|keywords?|deadline|due|format|title|client|budget|rate|deliverable)s?\s*[:\-]/i.test(t)) return;
+      /* A shouted category heading is a heading. "CONTEMPORARY ROCK STAR ROMANCE
+         (One of the main characters must be a rock star)" was filed as a rule of
+         its own because "must" appears inside its parenthetical, while the other
+         ten headings on the same page were not — so one category leaked into the
+         requirements and the rest did not. A line with no lower-case letters
+         outside its brackets is a heading, whatever it contains. */
+      if (isShoutedHeading(t)) return;
       /* Classify on the instruction, not on the examples it cites. A film
          called Don't Look Up, named inside "(e.g. Lady Gaga for House of Gucci,
          Leonardo DiCaprio for Don't Look Up)", put the whole bullet — one of
