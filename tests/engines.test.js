@@ -1077,6 +1077,139 @@ async function run() {
       });
   });
 
+  /* The Media Co-op's pitching page, and a first-person essay published on it.
+     Canadian English, and a market whose own vocabulary the checker was
+     correcting. */
+  await t.section('the checker — a draft that disagrees with itself', function () {
+    function inconsistent(text, lang) {
+      return FW.analyzer.analyze(text, { language: lang }).issues
+        .filter(function (i) { return i.rule === 'spelling-inconsistent'; });
+    }
+    /* The published essay used "land defense" four times and "land defence"
+       once. No locale setting said so — and Canadian, the one that writer would
+       have picked, said nothing at all, because both forms are at home there. */
+    var mixed = 'My experience with land defense in the past five years is that the connection ' +
+      'is strange. The land defense struggle continues. Two Spirit people are excluded from the ' +
+      'land defense struggle. Including land defense struggles everywhere. With regards to land ' +
+      'defence, we must remain vigilant against oppression.';
+    ['en-US', 'en-GB', 'en-CA'].forEach(function (lang) {
+      var found = inconsistent(mixed, lang);
+      t.equal(found.length, 1, lang + ': the draft is told it spells the word both ways');
+      t.equal(found[0].excerpt, 'defence', lang + ': and pointed at the form used once');
+      t.equal(found[0].fix, 'defense', lang + ': with the majority form offered as the fix');
+      t.includes(found[0].message, '4', lang + ': the message counts both');
+    });
+
+    /* A draft that picks one and sticks to it must stay silent, or this is just
+       a rule that fires on the word. */
+    var consistent = 'The land defence campaign grew all year. Every land defence group joined the ' +
+      'land defence effort, and the land defence camp held through the winter.';
+    ['en-US', 'en-GB', 'en-CA'].forEach(function (lang) {
+      t.equal(inconsistent(consistent, lang).length, 0, lang + ': a consistent draft draws nothing');
+    });
+
+    /* The minority form twice over, so that the first and last occurrence are
+       different offsets: the finding belongs on the first, which is where the
+       writer starts reading. With it used only once the two coincide and an
+       assertion cannot tell them apart. */
+    var twice = 'The land defence camp held. Organisers said the defense of the river mattered, ' +
+      'and the defense of the road mattered too, and the defense of the bridge as well. ' +
+      'By winter the land defence camp was still standing.';
+    var twiceFound = inconsistent(twice, 'en-CA');
+    t.equal(twiceFound.length, 1, 'still one finding when the minority form repeats');
+    t.equal(twiceFound[0].start, twice.indexOf('defence'),
+      'and it sits on the first use of the minority form, not the last');
+
+    /* Capitalisation carries into the fix, and the offsets point at the text. */
+    var cap = 'Defence matters. The defense of the land is the defense we mean, and defense again.';
+    var capFound = inconsistent(cap, 'en-CA');
+    t.equal(capFound.length, 1, 'one finding per pair, not one per occurrence');
+    t.equal(capFound[0].fix, 'Defense', 'a sentence-initial minority form keeps its capital');
+    t.ok(FW.analyzer.analyze(cap, {}).issues.every(function (i) {
+      return cap.slice(i.start, i.end) === i.excerpt;
+    }), 'every offset still matches its excerpt');
+  });
+
+  await t.section('the checker — the locales the picker offers', function () {
+    function count(code) {
+      var l = FW.resources.LANGUAGES.filter(function (x) { return x.code === code; })[0];
+      return Object.keys(l.spelling || {}).length;
+    }
+    /* Canadian had three entries and Australian four, against 189 and 172, so
+       choosing your own locale did almost nothing. */
+    t.atLeast(count('en-CA'), 80, 'Canadian English carries a real word list');
+    t.atLeast(count('en-AU'), 150, 'Australian English does too');
+
+    function loc(text, lang) {
+      return FW.analyzer.analyze(text, { language: lang }).issues
+        .filter(function (i) { return /^locale-/.test(i.rule || ''); })
+        .map(function (i) { return i.excerpt; });
+    }
+    /* Canadian is the hybrid its own note describes, and needs both halves. */
+    var canadian = 'The labour council will organize a defence of the neighbourhood centre.';
+    t.equal(loc(canadian, 'en-CA').length, 0, 'Canadian spelling passes in Canadian English');
+    t.atLeast(loc(canadian, 'en-US').length, 4, 'and is flagged when writing American');
+
+    t.includes(loc('The tenants will organise a campaign and recognise the council.', 'en-CA').join(' '),
+      'organise', 'British -ise is flagged in Canadian English');
+    t.includes(loc('The labor council met at the center about the color.', 'en-CA').join(' '),
+      'labor', 'and so is American -or');
+
+    /* The traps that made mirroring the British list a bug apply here too. */
+    var traps = 'It is good practice to get a license for the program. The draft sat on the third ' +
+      'story. He checked the meter and the tire, and the aluminum held.';
+    t.equal(loc(traps, 'en-CA').length, 0, 'no Canadian word that stands as it is gets corrected');
+  });
+
+  await t.section('brief parsing — a menu of subjects is not a list of rules', function () {
+    var menu = 'The Media Co-op is a grassroots media outlet.\nThe pieces we publish often focus ' +
+      'on things like\n\n* Indigenous land and water defence\n* climate justice\n* Palestine ' +
+      'solidarity\n* housing, homelessness, and tenant rights\n* disability struggles\n' +
+      '* community organizing';
+    var a = FW.brief.analyze({ title: 'Pitch', brief: menu });
+    /* Twelve subject areas became twelve rows a single piece could never meet. */
+    t.equal(a.instructions.required.length, 0, 'the subject areas are not requirements');
+    t.equal(a.instructions.topics.length, 6, 'they are kept as subject areas instead');
+    t.equal((a.checks || []).length, 0, 'and raise no compliance row to be scored against');
+    t.ok((a.gaps || []).some(function (g) { return /subject areas/.test(g); }),
+      'the writer is still told the outlet named them');
+
+    /* Bullets with no menu lead-in are still requirements — otherwise this is a
+       way of ignoring every bulleted brief in the suite. */
+    var rules = 'Please follow these rules.\n\n* Include three sources\n* Open with a scene\n' +
+      '* Close with a call to action';
+    var b = FW.brief.analyze({ title: 'x', brief: rules });
+    ['Include three sources', 'Open with a scene', 'Close with a call to action']
+      .forEach(function (r) {
+        t.includes(b.instructions.required.join(' | '), r,
+          'an ordinary bulleted brief still requires "' + r + '"');
+      });
+    t.equal(b.instructions.topics.length, 0, 'and records no subject areas');
+
+    /* A prose line between the lead-in and a later list ends the run. */
+    var broken = 'We cover things like\n\n* climate justice\n\nAll pieces must be filed by Friday.' +
+      '\n\n* Include three sources\n* Open with a scene';
+    var c = FW.brief.analyze({ title: 'x', brief: broken });
+    t.equal(c.instructions.topics.length, 1, 'the menu stops where the prose resumes');
+    t.atLeast(c.instructions.required.length, 2, 'and the later bullets are rules again');
+  });
+
+  await t.section('brief parsing — how to pitch is not the deliverable', function () {
+    function fmt(text) { return FW.brief.analyze({ title: 'x', brief: text }).meta.format; }
+    /* Four markets in a row were read as commissioning a how-to guide, from the
+       sentence every guidelines page carries about its own submissions. */
+    t.equal(fmt('Learn how to pitch to us and check out our guidelines.'), null,
+      '"how to pitch to us" is not a how-to guide');
+    t.equal(fmt('Read how to write for us before sending anything.'), null,
+      'nor is "how to write for us"');
+    t.equal(fmt('Here is how to submit your work.'), null, 'nor "how to submit"');
+    /* A real how-to still reads as one. */
+    t.equal(fmt('We want a how-to on repairing a bicycle wheel.'), 'how-to guide',
+      'a genuine how-to is still recognised');
+    t.equal(fmt('A step-by-step walkthrough of the process, please.'), 'how-to guide',
+      'and so is a step-by-step walkthrough');
+  });
+
   await t.section('originality', function () {
     var source = 'The payback period for a residential solar installation in Texas typically falls ' +
       'between seven and eleven years, according to the National Renewable Energy Laboratory.';

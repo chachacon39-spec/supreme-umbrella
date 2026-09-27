@@ -162,6 +162,55 @@ window.FW = window.FW || {};
   };
 
   /* ---- Language packs: spelling variants, punctuation conventions ---- */
+  /* Hoisted so Australian English can share it. Australian spelling follows
+     British for the -our, -re, -ce and -ise families, and the four entries it
+     carried on its own meant choosing it did almost nothing. */
+  var GB_SPELLING = { color: 'colour', flavor: 'flavour', behavior: 'behaviour', organize: 'organise', organized: 'organised', recognize: 'recognise', analyze: 'analyse', center: 'centre', theater: 'theatre', defense: 'defence', traveling: 'travelling', labeled: 'labelled', catalog: 'catalogue', gray: 'grey', math: 'maths' , airplane: 'aeroplane', analog: 'analogue', analyzed: 'analysed', analyzing: 'analysing', apologize: 'apologise', behavioral: 'behavioural', behaviors: 'behaviours', canceled: 'cancelled', canceling: 'cancelling', catalogs: 'catalogues', centered: 'centred', centers: 'centres', colored: 'coloured', colorful: 'colourful', coloring: 'colouring', colors: 'colours', counselor: 'counsellor', defenses: 'defences', emphasize: 'emphasise', emphasized: 'emphasised', enroll: 'enrol', favorite: 'favourite', favorites: 'favourites', flavored: 'flavoured', flavorful: 'flavourful', flavors: 'flavours', fulfill: 'fulfil', grueling: 'gruelling', harbor: 'harbour', harbored: 'harboured', harbors: 'harbours', honor: 'honour', honored: 'honoured', honors: 'honours', jewelry: 'jewellery', judgments: 'judgements', kilometer: 'kilometre', kilometers: 'kilometres', labeling: 'labelling', labor: 'labour', labored: 'laboured', labors: 'labours', licenses: 'licences', liter: 'litre', liters: 'litres', maneuver: 'manoeuvre', marvelous: 'marvellous', maximize: 'maximise', maximized: 'maximised', meters: 'metres', minimize: 'minimise', minimized: 'minimised', modeled: 'modelled', modeling: 'modelling', neighbor: 'neighbour', neighborhood: 'neighbourhood', neighboring: 'neighbouring', neighbors: 'neighbours', odor: 'odour', organization: 'organisation', organizations: 'organisations', organizes: 'organises', organizing: 'organising', plow: 'plough', practicing: 'practising', prioritize: 'prioritise', prioritized: 'prioritised', programs: 'programmes', realize: 'realise', realized: 'realised', realizing: 'realising', recognized: 'recognised', recognizes: 'recognises', recognizing: 'recognising', rigor: 'rigour', rumor: 'rumour', rumors: 'rumours', skeptical: 'sceptical', skepticism: 'scepticism', specialization: 'specialisation', specialize: 'specialise', specialized: 'specialised', specializing: 'specialising', traveled: 'travelled', traveler: 'traveller', travelers: 'travellers', utilize: 'utilise', utilized: 'utilised', vigor: 'vigour', vocalization: 'vocalisation', vocalize: 'vocalise', favor: 'favour', favors: 'favours', favored: 'favoured', favoring: 'favouring', humor: 'humour', humors: 'humours', humored: 'humoured', humoring: 'humouring', vapor: 'vapour', vapors: 'vapours', valor: 'valour', candor: 'candour', endeavor: 'endeavour', endeavors: 'endeavours', endeavored: 'endeavoured', parlor: 'parlour', parlors: 'parlours', savior: 'saviour', saviors: 'saviours', splendor: 'splendour', tumor: 'tumour', tumors: 'tumours', armor: 'armour', armored: 'armoured', armory: 'armoury', demeanor: 'demeanour', savor: 'savour', savors: 'savours', savored: 'savoured', savoring: 'savouring', weaponize: 'weaponise', weaponized: 'weaponised', weaponizing: 'weaponising', summarize: 'summarise', summarized: 'summarised', summarizing: 'summarising', criticize: 'criticise', criticized: 'criticised', criticizing: 'criticising', categorize: 'categorise', categorized: 'categorised', contextualize: 'contextualise', contextualized: 'contextualised', editorialize: 'editorialise', editorialized: 'editorialised', memorize: 'memorise', memorized: 'memorised', normalize: 'normalise', normalized: 'normalised', visualize: 'visualise', visualized: 'visualised', visualizing: 'visualising', fiber: 'fibre', fibers: 'fibres', caliber: 'calibre', somber: 'sombre', specter: 'spectre', specters: 'spectres', offense: 'offence', offenses: 'offences', pretense: 'pretence', fueled: 'fuelled', fueling: 'fuelling', aluminum: 'aluminium', smolder: 'smoulder', smoldering: 'smouldering' };
+
+  /* Canadian English is the hybrid its own note describes, and needs both
+     directions: British -our, -re and -ce, but American -ize. With three
+     entries, a Canadian writer who picked their own locale got almost no
+     checking, and "organise" — which Canadian style does not want — passed
+     in silence. Words that are ordinary Canadian as they stand are left out
+     for the same reason they are left out of British: practice and license
+     are the Canadian noun spellings, a program is a program, a tire is a
+     tire, aluminum is aluminum, and a meter is a measuring device. */
+  var CA_SPELLING = {
+    color: 'colour', colors: 'colours', colored: 'coloured', coloring: 'colouring',
+    favor: 'favour', favors: 'favours', favored: 'favoured', favoring: 'favouring',
+    flavor: 'flavour', flavors: 'flavours', behavior: 'behaviour', behaviors: 'behaviours',
+    honor: 'honour', honors: 'honours', honored: 'honoured',
+    labor: 'labour', labors: 'labours', labored: 'laboured',
+    neighbor: 'neighbour', neighbors: 'neighbours', neighborhood: 'neighbourhood',
+    humor: 'humour', armor: 'armour', rumor: 'rumour', rumors: 'rumours',
+    vapor: 'vapour', odor: 'odour', vigor: 'vigour', rigor: 'rigour',
+    harbor: 'harbour', savior: 'saviour', splendor: 'splendour', endeavor: 'endeavour',
+    center: 'centre', centers: 'centres', centered: 'centred',
+    theater: 'theatre', theaters: 'theatres', fiber: 'fibre', fibers: 'fibres',
+    liter: 'litre', liters: 'litres',
+    defense: 'defence', defenses: 'defences', offense: 'offence', offenses: 'offences',
+    pretense: 'pretence',
+    traveling: 'travelling', traveled: 'travelled', traveler: 'traveller',
+    labeled: 'labelled', labeling: 'labelling', modeling: 'modelling', modeled: 'modelled',
+    canceled: 'cancelled', canceling: 'cancelling', fueled: 'fuelled',
+    marvelous: 'marvellous', catalog: 'catalogue', catalogs: 'catalogues',
+    dialog: 'dialogue', gray: 'grey',
+    /* the -ize half of the hybrid */
+    organise: 'organize', organised: 'organized', organising: 'organizing',
+    organisation: 'organization', organisations: 'organizations',
+    recognise: 'recognize', recognised: 'recognized',
+    realise: 'realize', realised: 'realized',
+    analyse: 'analyze', analysed: 'analyzed',
+    criticise: 'criticize', criticised: 'criticized',
+    emphasise: 'emphasize', emphasised: 'emphasized',
+    apologise: 'apologize', minimise: 'minimize', minimised: 'minimized',
+    maximise: 'maximize', prioritise: 'prioritize', summarise: 'summarize',
+    categorise: 'categorize', memorise: 'memorize', normalise: 'normalize',
+    visualise: 'visualize', weaponise: 'weaponize',
+    specialise: 'specialize', specialised: 'specialized', utilise: 'utilize',
+    contextualise: 'contextualize', editorialise: 'editorialize'
+  };
+
   var LANGUAGES = [
     {
       code: 'en-US', label: 'English (United States)', dir: 'ltr',
@@ -172,11 +221,11 @@ window.FW = window.FW || {};
     {
       code: 'en-GB', label: 'English (United Kingdom)', dir: 'ltr',
       quotes: ['‘', '’'], inner: ['“', '”'], commaInQuotes: false,
-      spelling: { color: 'colour', flavor: 'flavour', behavior: 'behaviour', organize: 'organise', organized: 'organised', recognize: 'recognise', analyze: 'analyse', center: 'centre', theater: 'theatre', defense: 'defence', traveling: 'travelling', labeled: 'labelled', catalog: 'catalogue', gray: 'grey', math: 'maths' , airplane: 'aeroplane', analog: 'analogue', analyzed: 'analysed', analyzing: 'analysing', apologize: 'apologise', behavioral: 'behavioural', behaviors: 'behaviours', canceled: 'cancelled', canceling: 'cancelling', catalogs: 'catalogues', centered: 'centred', centers: 'centres', colored: 'coloured', colorful: 'colourful', coloring: 'colouring', colors: 'colours', counselor: 'counsellor', defenses: 'defences', emphasize: 'emphasise', emphasized: 'emphasised', enroll: 'enrol', favorite: 'favourite', favorites: 'favourites', flavored: 'flavoured', flavorful: 'flavourful', flavors: 'flavours', fulfill: 'fulfil', grueling: 'gruelling', harbor: 'harbour', harbored: 'harboured', harbors: 'harbours', honor: 'honour', honored: 'honoured', honors: 'honours', jewelry: 'jewellery', judgments: 'judgements', kilometer: 'kilometre', kilometers: 'kilometres', labeling: 'labelling', labor: 'labour', labored: 'laboured', labors: 'labours', licenses: 'licences', liter: 'litre', liters: 'litres', maneuver: 'manoeuvre', marvelous: 'marvellous', maximize: 'maximise', maximized: 'maximised', meters: 'metres', minimize: 'minimise', minimized: 'minimised', modeled: 'modelled', modeling: 'modelling', neighbor: 'neighbour', neighborhood: 'neighbourhood', neighboring: 'neighbouring', neighbors: 'neighbours', odor: 'odour', organization: 'organisation', organizations: 'organisations', organizes: 'organises', organizing: 'organising', plow: 'plough', practicing: 'practising', prioritize: 'prioritise', prioritized: 'prioritised', programs: 'programmes', realize: 'realise', realized: 'realised', realizing: 'realising', recognized: 'recognised', recognizes: 'recognises', recognizing: 'recognising', rigor: 'rigour', rumor: 'rumour', rumors: 'rumours', skeptical: 'sceptical', skepticism: 'scepticism', specialization: 'specialisation', specialize: 'specialise', specialized: 'specialised', specializing: 'specialising', traveled: 'travelled', traveler: 'traveller', travelers: 'travellers', utilize: 'utilise', utilized: 'utilised', vigor: 'vigour', vocalization: 'vocalisation', vocalize: 'vocalise', favor: 'favour', favors: 'favours', favored: 'favoured', favoring: 'favouring', humor: 'humour', humors: 'humours', humored: 'humoured', humoring: 'humouring', vapor: 'vapour', vapors: 'vapours', valor: 'valour', candor: 'candour', endeavor: 'endeavour', endeavors: 'endeavours', endeavored: 'endeavoured', parlor: 'parlour', parlors: 'parlours', savior: 'saviour', saviors: 'saviours', splendor: 'splendour', tumor: 'tumour', tumors: 'tumours', armor: 'armour', armored: 'armoured', armory: 'armoury', demeanor: 'demeanour', savor: 'savour', savors: 'savours', savored: 'savoured', savoring: 'savouring', weaponize: 'weaponise', weaponized: 'weaponised', weaponizing: 'weaponising', summarize: 'summarise', summarized: 'summarised', summarizing: 'summarising', criticize: 'criticise', criticized: 'criticised', criticizing: 'criticising', categorize: 'categorise', categorized: 'categorised', contextualize: 'contextualise', contextualized: 'contextualised', editorialize: 'editorialise', editorialized: 'editorialised', memorize: 'memorise', memorized: 'memorised', normalize: 'normalise', normalized: 'normalised', visualize: 'visualise', visualized: 'visualised', visualizing: 'visualising', fiber: 'fibre', fibers: 'fibres', caliber: 'calibre', somber: 'sombre', specter: 'spectre', specters: 'spectres', offense: 'offence', offenses: 'offences', pretense: 'pretence', fueled: 'fuelled', fueling: 'fuelling', aluminum: 'aluminium', smolder: 'smoulder', smoldering: 'smouldering' },
+      spelling: GB_SPELLING,
       notes: ['Punctuation sits outside quotation marks unless part of the quote.', 'Single quotes for speech in most house styles.', 'Dates: day month year.']
     },
-    { code: 'en-AU', label: 'English (Australia)', dir: 'ltr', quotes: ['‘', '’'], inner: ['“', '”'], commaInQuotes: false, spelling: { color: 'colour', organize: 'organise', center: 'centre', program: 'program' }, notes: ['Follows UK spelling with -ise endings.', 'Uses the Australian Government Style Manual.'] },
-    { code: 'en-CA', label: 'English (Canada)', dir: 'ltr', quotes: ['“', '”'], inner: ['‘', '’'], commaInQuotes: true, spelling: { color: 'colour', center: 'centre', analyse: 'analyze' }, notes: ['Hybrid: British -our, American -ize.'] },
+    { code: 'en-AU', label: 'English (Australia)', dir: 'ltr', quotes: ['‘', '’'], inner: ['“', '”'], commaInQuotes: false, spelling: GB_SPELLING, notes: ['Follows UK spelling with -ise endings.', 'Uses the Australian Government Style Manual.'] },
+    { code: 'en-CA', label: 'English (Canada)', dir: 'ltr', quotes: ['“', '”'], inner: ['‘', '’'], commaInQuotes: true, spelling: CA_SPELLING, notes: ['Hybrid: British -our, American -ize.'] },
     { code: 'es', label: 'Español', dir: 'ltr', quotes: ['«', '»'], inner: ['“', '”'], commaInQuotes: false, spelling: {}, notes: ['Opening ¿ and ¡ are required.', 'Angular quotes preferred in formal prose.', 'Decimal comma, thousands point.'] },
     { code: 'fr', label: 'Français', dir: 'ltr', quotes: ['« ', ' »'], inner: ['“', '”'], commaInQuotes: false, spelling: {}, notes: ['Non-breaking space before ; : ! ?', 'Guillemets with inner spacing.', 'Decimal comma.'] },
     { code: 'de', label: 'Deutsch', dir: 'ltr', quotes: ['„', '“'], inner: ['‚', '‘'], commaInQuotes: false, spelling: {}, notes: ['All nouns capitalised.', 'Low-high quotation marks.', 'Comma before subordinate clauses is mandatory.'] },
