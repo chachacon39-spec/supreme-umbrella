@@ -1,0 +1,30 @@
+{
+  "background_color": "#f4f2ed",
+  "description": "A freelance writer's workspace: assignment board, brief analyser, three writing approaches per task, live grammar and structure checking, summariser, paraphraser, originality check, citations, image generator and exports.",
+  "display": "standalone",
+  "icons": [
+    {
+      "sizes": "192x192",
+      "src": "assets/icons/icon-192.png",
+      "type": "image/png"
+    },
+    {
+      "sizes": "512x512",
+      "src": "assets/icons/icon-512.png",
+      "type": "image/png"
+    },
+    {
+      "purpose": "maskable",
+      "sizes": "512x512",
+      "src": "assets/icons/icon-maskable-512.png",
+      "type": "image/png"
+    }
+  ],
+  "id": "/supreme-umbrella/",
+  "name": "Quill & Ledger",
+  "orientation": "any",
+  "scope": "/supreme-umbrella/",
+  "short_name": "Quill & Ledger",
+  "start_url": "/supreme-umbrella/",
+  "theme_color": "#8a4b1f"
+}

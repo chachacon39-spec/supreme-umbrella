@@ -6,6 +6,8 @@
 <title>Quill &amp; Ledger — freelance writing desk</title>
 <meta name="description" content="A freelance writer's workspace: assignment board, brief analyser, three writing approaches per task, live grammar and structure checking, summariser, paraphraser, originality check, citations, image generator and exports.">
 <meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#8a4b1f">
+<link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✒️</text></svg>">
 <link rel="stylesheet" href="assets/css/base.css">
 <link rel="stylesheet" href="assets/css/app.css">
@@ -52,5 +54,17 @@
 <script src="assets/js/ui/backup.js"></script>
 <script src="assets/js/ui/resources.js"></script>
 <script src="assets/js/app.js"></script>
+
+<!-- PWA: register the offline service worker. The app itself is unchanged;
+     this only caches the app shell so it opens without a network. -->
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', function () {
+    navigator.serviceWorker.register('sw.js').catch(function (err) {
+      console.warn('Service worker registration failed:', err);
+    });
+  });
+}
+</script>
 </body>
 </html>
