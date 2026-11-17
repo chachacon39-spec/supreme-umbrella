@@ -35,6 +35,13 @@ jobs:
           mkdir -p _site
           cp index.html _site/
           cp -R assets _site/
+          # The Play Store wrapper needs these live: the manifest and service
+          # worker for the installable web app, and the Digital Asset Links
+          # file so Play can verify the app against this origin.
+          cp manifest.webmanifest _site/
+          cp sw.js _site/
+          mkdir -p _site/.well-known
+          cp .well-known/assetlinks.json _site/.well-known/
           # A .nojekyll file stops Pages hiding paths that begin with an
           # underscore. Nothing here starts with one today; this keeps that
           # from becoming a silent 404 if something ever does.
