@@ -496,8 +496,14 @@ window.FW = window.FW || {};
      then neither counted nor checked. The moment the writer starts to write
      in one, replace it with a clean empty paragraph in normal style. */
   function placeholderAncestor(node) {
+    /* The placeholder is the whole paragraph: the italics inside it are only
+       styling, and they match the placeholder text too. Returning the <em>
+       would empty the italics and leave the caret inside them, so the typed
+       text lands wrapped in <em> — which is what happened in CI, where the
+       click point falls on the italic text instead of the bare paragraph.
+       Always return the block, never an inline descendant. */
     while (node && node !== refs.editor) {
-      if (node.nodeType === 1 && isPlaceholder(node)) return node;
+      if (node.nodeType === 1 && BLOCK.test(node.tagName) && isPlaceholder(node)) return node;
       node = node.parentNode;
     }
     return null;
