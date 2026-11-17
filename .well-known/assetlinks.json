@@ -3,8 +3,8 @@
     "relation": ["delegate_permission/common.handle_all_urls"],
     "target": {
       "namespace": "android_app",
-      "package_name": "REPLACE_WITH_TWA_PACKAGE_NAME",
-      "sha256_cert_fingerprints": ["REPLACE_WITH_PLAY_APP_SIGNING_SHA256"]
+      "package_name": "io.github.chachacon39_spec.twa",
+      "sha256_cert_fingerprints": ["5C:06:3A:F2:1B:E5:9C:73:0E:39:7D:61:2A:1B:9E:BF:81:5A:EE:7F:D5:16:FA:5C:66:4C:DB:63:FB:D6:04:56"]
     }
   }
 ]
