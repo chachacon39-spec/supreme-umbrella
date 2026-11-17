@@ -28,6 +28,18 @@ window.FW = window.FW || {};
     return { text: sel || api.getText(), isSelection: !!sel };
   }
 
+  /* The paraphraser's source: a selection first, then the sentence the caret
+     sits in, then the whole draft. The panel used to claim the whole draft
+     and then refuse a bare caret with "Select a passage first" — a sentence
+     is what a writer with no selection actually means. */
+  function paraphraseSource(api) {
+    var sel = api.getSelection();
+    if (sel) return { text: sel, isSelection: true };
+    var sentence = api.sentenceAtCaret ? api.sentenceAtCaret() : '';
+    if (sentence) return { text: sentence, isSelection: false, isSentence: true };
+    return { text: api.getText(), isSelection: false };
+  }
+
   /* =================== TOOLS TAB =================== */
   function renderTools(host, api) {
     U.clear(host);
@@ -143,9 +155,9 @@ window.FW = window.FW || {};
       }));
 
     function run() {
-      var src = sourceText(api);
+      var src = paraphraseSource(api);
       if (!src.isSelection && outlineOnly(api, 'rewriting it')) return;
-      if (U.wordCount(src.text) < 8) { K.toast('Select a passage, or write more first', 'error'); return; }
+      if (U.wordCount(src.text) < 8) { K.toast('Select a passage, or put the caret in a sentence', 'error'); return; }
       if (!src.isSelection && U.wordCount(src.text) > 1200) {
         K.toast('Select a passage — paraphrasing a whole long draft at once rarely reads well', 'error');
         return;
@@ -223,6 +235,13 @@ window.FW = window.FW || {};
             K.toast('Selection replaced');
           }
         }) : null,
+        src.isSentence ? el('button', {
+          class: 'btn btn-sm btn-primary', text: 'Replace sentence',
+          onclick: function () {
+            if (api.replaceSentenceAtCaret) api.replaceSentenceAtCaret(result.text, 'before the ' + mode + ' paraphrase');
+            K.toast('Sentence replaced');
+          }
+        }) : null,
         el('button', { class: 'btn btn-sm btn-ghost', text: 'Try again', onclick: run })
       ].filter(Boolean)));
 
@@ -230,7 +249,7 @@ window.FW = window.FW || {};
         text: 'Rule-based rewriting. Read every sentence before you keep it — synonyms can shift meaning.' }));
     }
 
-    wrap.appendChild(sectionHead('Paraphraser', 'Select a passage first, or it works on the whole draft.'));
+    wrap.appendChild(sectionHead('Paraphraser', 'Select a passage, or put the caret in a sentence — otherwise it works on the whole draft.'));
     wrap.appendChild(modeButtons);
     wrap.appendChild(el('button', { class: 'btn btn-primary btn-sm', text: 'Rewrite', onclick: run }));
     wrap.appendChild(out);

@@ -86,7 +86,21 @@ window.FW = window.FW || {};
 
   function formatDate(ts) {
     if (!ts) return '';
-    var d = typeof ts === 'string' ? new Date(ts) : new Date(Number(ts));
+    /* A bare YYYY-MM-DD is a calendar date, not a moment: parsing it as UTC
+       midnight displays a day early in every US timezone. Build it as a
+       local date instead; anything else keeps the old behaviour. */
+    var d;
+    if (typeof ts === 'string') {
+      var parts = ts.trim().split('-');
+      if (parts.length === 3 && /^\d{4}$/.test(parts[0]) &&
+          /^\d{1,2}$/.test(parts[1]) && /^\d{1,2}$/.test(parts[2])) {
+        d = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+      } else {
+        d = new Date(ts);
+      }
+    } else {
+      d = new Date(Number(ts));
+    }
     if (isNaN(d.getTime())) return '';
     return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
   }
@@ -189,6 +203,22 @@ window.FW = window.FW || {};
 
   function wordCount(text) { return words(text).length; }
 
+  /* One outline placeholder line, exactly as the scaffold writes it:
+     "~100 words. Draft this section." — the "~N words." prefix is optional.
+     Shared so the editor, the word counts and the export checks all agree on
+     what is furniture and what is prose. */
+  var PLACEHOLDER_LINE = /^(?:~\s*\d+\s*words\.\s*)?draft this section\.$/i;
+
+  /* Words in stored draft HTML, counting only what the writer actually wrote:
+     scaffold placeholder blocks are stripped first, so a fresh outline reads
+     as zero words everywhere it is counted (board, history, snapshots) and a
+     draft's count no longer depends on which screen is asking. */
+  var PLACEHOLDER_BLOCK = /<(?:p|li|blockquote)[^>]*>(?:<[^>]+>)*\s*(?:~\s*\d+\s*words\.\s*)?draft this section\.\s*(?:<\/[^>]+>)*<\/(?:p|li|blockquote)>/gi;
+
+  function proseWordCount(html) {
+    return wordCount(stripHtml(String(html || '').replace(PLACEHOLDER_BLOCK, ' ')));
+  }
+
   function countSyllables(word) {
     word = String(word || '').toLowerCase().replace(/[^a-z]/g, '');
     if (!word) return 0;
@@ -283,7 +313,8 @@ window.FW = window.FW || {};
     pluralize: pluralize, formatDate: formatDate, daysUntil: daysUntil,
     hashString: hashString, seeded: seeded, pick: pick, pickN: pickN, unique: unique,
     splitSentences: splitSentences, splitParagraphs: splitParagraphs, words: words, isAbbrev: isAbbrev,
-    wordCount: wordCount, countSyllables: countSyllables, stripHtml: stripHtml, normalizeQuotes: normalizeQuotes,
+    wordCount: wordCount, proseWordCount: proseWordCount, PLACEHOLDER_LINE: PLACEHOLDER_LINE,
+    countSyllables: countSyllables, stripHtml: stripHtml, normalizeQuotes: normalizeQuotes,
     save: save, load: load, remove: remove, download: download, copyText: copyText, slugify: slugify
   };
 })(window.FW);

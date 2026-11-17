@@ -58,6 +58,8 @@ window.FW = window.FW || {};
     buildToolbar();
 
     refs.editor.addEventListener('input', onInput);
+    refs.editor.addEventListener('beforeinput', onBeforeInput);
+    refs.editor.addEventListener('mousedown', onPlaceholderMouseDown);
     refs.editor.addEventListener('keydown', onKeyDown);
     refs.editor.addEventListener('paste', onPaste);
     refs.editor.addEventListener('drop', onDrop);
@@ -80,10 +82,100 @@ window.FW = window.FW || {};
   }
 
   function cmd(command, value) {
+    noteEditStart('format');
     refs.editor.focus();
     try { document.execCommand(command, false, value || null); } catch (e) { /* unsupported */ }
     onInput();
     updateToolbarState();
+  }
+
+  /* ---- editor undo ----
+     Native undo is per-keystroke and is wiped whenever the draft HTML is set
+     programmatically (outline scaffolding, history restore, tool rewrites), so
+     a mangled draft could not be undone at all — the walkthrough's Ctrl+Z did
+     nothing and the Undo button only stepped back one character. Keep our own
+     stack of whole-document states, grouped into bursts, so one Ctrl+Z undoes
+     one burst of typing or one tool action. */
+  var undoStack = [], redoStack = [], lastUndoPushAt = 0;
+
+  function caretOffset() {
+    var sel = window.getSelection();
+    if (!sel || !sel.rangeCount) return 0;
+    var range = sel.getRangeAt(0);
+    if (!refs.editor.contains(range.startContainer)) return 0;
+    var pre = document.createRange();
+    pre.selectNodeContents(refs.editor);
+    pre.setEnd(range.startContainer, range.startOffset);
+    return pre.toString().length;
+  }
+
+  function placeCaretAtOffset(offset) {
+    var walker = document.createTreeWalker(refs.editor, NodeFilter.SHOW_TEXT);
+    var node, remaining = Math.max(0, offset || 0), lastText = null;
+    while ((node = walker.nextNode())) {
+      lastText = node;
+      if (remaining <= node.nodeValue.length) {
+        var range = document.createRange();
+        range.setStart(node, remaining);
+        range.collapse(true);
+        var sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+        return;
+      }
+      remaining -= node.nodeValue.length;
+    }
+    /* Past the end (or an empty draft): park the caret at the end. */
+    var end = document.createRange();
+    if (lastText) end.setStart(lastText, lastText.nodeValue.length);
+    else { end.selectNodeContents(refs.editor); end.collapse(false); }
+    end.collapse(true);
+    var sel2 = window.getSelection();
+    sel2.removeAllRanges();
+    sel2.addRange(end);
+  }
+
+  function pushUndo(html) {
+    if (!currentDoc || !refs.editor) return;
+    html = html === undefined ? refs.editor.innerHTML : html;
+    var top = undoStack[undoStack.length - 1];
+    if (top && top.html === html) return;
+    undoStack.push({ html: html, caret: caretOffset() });
+    if (undoStack.length > 50) undoStack.shift();
+    redoStack.length = 0;
+    lastUndoPushAt = Date.now();
+  }
+
+  /* Called before a mutation. Keystrokes inside one burst share a state, so a
+     single Ctrl+Z takes the whole burst back; structural edits (formatting,
+     deletions, pastes) always start a fresh state. */
+  function noteEditStart(inputType) {
+    if (!currentDoc || !refs.editor) return;
+    var structural = inputType && !/^(insertText|deleteContentBackward|deleteContentForward|insertCompositionText|insertFromComposition)$/.test(inputType);
+    if (!structural && Date.now() - lastUndoPushAt < 1500) return;
+    pushUndo();
+  }
+
+  function restoreUndoState(state) {
+    refs.editor.innerHTML = state.html;
+    placeCaretAtOffset(state.caret || 0);
+    lastUndoPushAt = 0;
+    saveNow();
+    runCheck();
+  }
+
+  function doUndo() {
+    if (!currentDoc || !refs.editor) return;
+    if (!undoStack.length) { K.toast('Nothing to undo'); return; }
+    redoStack.push({ html: refs.editor.innerHTML, caret: caretOffset() });
+    restoreUndoState(undoStack.pop());
+  }
+
+  function doRedo() {
+    if (!currentDoc || !refs.editor) return;
+    if (!redoStack.length) { K.toast('Nothing to redo'); return; }
+    undoStack.push({ html: refs.editor.innerHTML, caret: caretOffset() });
+    restoreUndoState(redoStack.pop());
   }
 
   function tbButton(label, title, command, value, key) {
@@ -143,8 +235,16 @@ window.FW = window.FW || {};
     t.appendChild(tbButton('⌫', 'Clear formatting', 'removeFormat'));
 
     t.appendChild(el('span', { class: 'sep' }));
-    t.appendChild(tbButton('↶', 'Undo', 'undo', null, 'Ctrl+Z'));
-    t.appendChild(tbButton('↷', 'Redo', 'redo', null, 'Ctrl+Shift+Z'));
+    t.appendChild(el('button', {
+      class: 'tb-btn', title: 'Undo  (Ctrl+Z)', html: '↶',
+      onmousedown: function (e) { e.preventDefault(); },
+      onclick: function () { doUndo(); }
+    }));
+    t.appendChild(el('button', {
+      class: 'tb-btn', title: 'Redo  (Ctrl+Shift+Z)', html: '↷',
+      onmousedown: function (e) { e.preventDefault(); },
+      onclick: function () { doRedo(); }
+    }));
 
     t.appendChild(el('div', { class: 'grow' }));
 
@@ -211,6 +311,8 @@ window.FW = window.FW || {};
       K.toast('Saved — version added to history');
       return;
     }
+    if (mod && e.key.toLowerCase() === 'z' && !e.shiftKey) { e.preventDefault(); doUndo(); return; }
+    if ((mod && e.shiftKey && e.key.toLowerCase() === 'z') || (mod && e.key.toLowerCase() === 'y')) { e.preventDefault(); doRedo(); return; }
     if (mod && e.key.toLowerCase() === 'k') { e.preventDefault(); refs.toolbar.querySelector('[title="Insert link"]').click(); return; }
     if (mod && e.shiftKey && /^[123]$/.test(e.key)) { e.preventDefault(); cmd('formatBlock', 'h' + e.key); return; }
     if (mod && e.key === '0') { e.preventDefault(); cmd('formatBlock', 'p'); return; }
@@ -382,11 +484,75 @@ window.FW = window.FW || {};
      furniture. Leave them out until they are written over — matching on the
      text rather than a marker attribute, so a line stops being a placeholder
      the moment it is replaced. */
-  var PLACEHOLDER_LINE = /^(?:~\s*\d+\s*words\.\s*)?draft this section\.$/i;
+  var PLACEHOLDER_LINE = U.PLACEHOLDER_LINE;
 
   function isPlaceholder(node) {
     if (!node || node.nodeType !== 1) return false;
     return PLACEHOLDER_LINE.test((node.textContent || '').trim());
+  }
+
+  /* A placeholder line is furniture, not prose — but it is a live editable
+     paragraph, so typing into it writes inside its italics and the text is
+     then neither counted nor checked. The moment the writer starts to write
+     in one, replace it with a clean empty paragraph in normal style. */
+  function placeholderAncestor(node) {
+    while (node && node !== refs.editor) {
+      if (node.nodeType === 1 && isPlaceholder(node)) return node;
+      node = node.parentNode;
+    }
+    return null;
+  }
+
+  function swapPlaceholder(node) {
+    if (!node) return false;
+    while (node.firstChild) node.removeChild(node.firstChild);
+    node.appendChild(document.createElement('br'));
+    return true;
+  }
+
+  /* Swap the placeholder under the caret for a clean paragraph and put the
+     caret at its start. Returns true when a swap happened. */
+  function swapPlaceholderAtCaret() {
+    var sel = window.getSelection();
+    if (!sel || !sel.rangeCount) return false;
+    var node = placeholderAncestor(sel.anchorNode);
+    if (!node) return false;
+    swapPlaceholder(node);
+    var range = document.createRange();
+    range.setStart(node, 0);
+    range.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(range);
+    return true;
+  }
+
+  /* beforeinput fires before the browser mutates the draft: the one place an
+     undo state can still be the state before the edit, and the one place a
+     placeholder can be swapped out before the typed text lands in it. */
+  function onBeforeInput(e) {
+    if (!currentDoc) return;
+    var type = e.inputType || '';
+    if (type === 'historyUndo' || type === 'historyRedo') return;
+    noteEditStart(type);
+    swapPlaceholderAtCaret();
+  }
+
+  /* A click straight into a placeholder should land the writer in a clean
+     paragraph, not inside the italics. */
+  function onPlaceholderMouseDown(e) {
+    if (e.button !== 0) return;
+    var node = placeholderAncestor(e.target);
+    if (!node) return;
+    e.preventDefault();
+    pushUndo();
+    swapPlaceholder(node);
+    refs.editor.focus();
+    var range = document.createRange();
+    range.setStart(node, 0);
+    range.collapse(true);
+    var sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
   }
 
   /* A heading with nothing under it is a row of the outline, not a section of
@@ -454,6 +620,65 @@ window.FW = window.FW || {};
     return range;
   }
 
+  /* A character range inside one block, mapped back onto its text nodes. */
+  function rangeInBlock(block, start, end) {
+    var walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT);
+    var node, at = 0, range = document.createRange(), startSet = false, lastText = null;
+    while ((node = walker.nextNode())) {
+      lastText = node;
+      var len = node.nodeValue.length;
+      if (!startSet && start >= at && start <= at + len) {
+        range.setStart(node, start - at);
+        startSet = true;
+      }
+      if (startSet && end >= at && end <= at + len) {
+        range.setEnd(node, end - at);
+        return range;
+      }
+      at += len;
+    }
+    if (startSet && lastText) {
+      range.setEnd(lastText, lastText.nodeValue.length);
+      return range;
+    }
+    return null;
+  }
+
+  /* The finished sentence the caret sits in, with its range in the draft.
+     Headings and placeholder lines have no sentence to offer. */
+  function sentenceAtCaretRange() {
+    var sel = window.getSelection();
+    if (!sel || !sel.rangeCount) return null;
+    var node = sel.anchorNode;
+    if (!node || !refs.editor.contains(node)) return null;
+    var block = node.nodeType === 1 ? node : node.parentNode;
+    while (block && block !== refs.editor && !/^(P|LI|BLOCKQUOTE|H[1-6]|DIV|TD|TH)$/.test(block.tagName)) block = block.parentNode;
+    if (!block || block === refs.editor || /^H[1-6]$/.test(block.tagName)) return null;
+    if (isPlaceholder(block)) return null;
+    var text = block.textContent || '';
+    var offset = 0;
+    if (node.nodeType === 3) {
+      var walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT);
+      var n;
+      while ((n = walker.nextNode())) {
+        if (n === node) { offset += sel.anchorOffset; break; }
+        offset += n.nodeValue.length;
+      }
+    }
+    var sentences = U.splitSentences(text);
+    var at = 0;
+    for (var i = 0; i < sentences.length; i++) {
+      var start = text.indexOf(sentences[i], at);
+      if (start === -1) continue;
+      var end = start + sentences[i].length;
+      if (offset >= start && offset <= end) {
+        return { text: sentences[i], range: rangeInBlock(block, start, end) };
+      }
+      at = end;
+    }
+    return null;
+  }
+
   /* ================= load / save ================= */
   function load(taskId) {
     currentTask = S.getTask(taskId);
@@ -467,6 +692,7 @@ window.FW = window.FW || {};
     refs.editor.innerHTML = currentDoc.html || '';
     ignored = {};
     lastRange = null;
+    undoStack = []; redoStack = []; lastUndoPushAt = 0;
 
     /* Opening a draft that has content but no history leaves nothing to fall
        back to, so lay down a baseline before the writer touches it. */
@@ -509,7 +735,10 @@ window.FW = window.FW || {};
 
   var lastSnapshotAt = 0, lastSnapshotWords = 0, snapshotTimer = null;
 
-  function editorWords() { return U.wordCount(refs.editor ? refs.editor.textContent : ''); }
+  /* One count everywhere: the text map already leaves placeholder lines out,
+     so the history panel, the snapshots and the status bar all agree with the
+     checker instead of counting the scaffold as prose. */
+  function editorWords() { return refs.editor ? U.wordCount(textMap().text) : 0; }
 
   /* Capture the draft as it stands. `label` describes the entry. */
   function takeSnapshot(label) {
@@ -546,6 +775,7 @@ window.FW = window.FW || {};
     if (!refs.editor.textContent.trim() && !refs.editor.querySelector('img, table, hr')) {
       var only = refs.editor.firstElementChild;
       if (only && /^h[1-6]$|^blockquote$|^pre$/i.test(only.tagName)) {
+        pushUndo();
         refs.editor.innerHTML = '<p><br></p>';
         placeCaretAtStart();
       }
@@ -627,6 +857,7 @@ window.FW = window.FW || {};
   /* execCommand('insertHTML') rewrites markup (it turns <mark> into a styled span),
      so build the nodes ourselves and drop them in through the Range API. */
   function insertHtmlAt(html) {
+    pushUndo();
     var template = document.createElement('div');
     template.innerHTML = html;
     var fragment = document.createDocumentFragment();
@@ -676,6 +907,7 @@ window.FW = window.FW || {};
     if (issue.fix === null || issue.fix === undefined) return;
     var range = rangeFor(lastResult.map, issue.start, issue.end);
     if (!range) return;
+    pushUndo();
     range.deleteContents();
     if (issue.fix !== '') range.insertNode(document.createTextNode(issue.fix));
     else {
@@ -696,6 +928,7 @@ window.FW = window.FW || {};
     });
     if (!list.length) return;
     snapshotBefore('before fixing ' + list.length + ' × ' + describeRule(list[0]));
+    pushUndo();
     /* Work back to front so earlier offsets stay valid. */
     list.sort(function (a, b) { return b.start - a.start; }).forEach(function (issue) {
       var range = rangeFor(lastResult.map, issue.start, issue.end);
@@ -1102,7 +1335,7 @@ window.FW = window.FW || {};
       if (/^H[1-3]$/.test(node.tagName)) {
         if (current.words > best.words) best = current;
         current = { words: 0, heading: node.textContent.trim() };
-      } else {
+      } else if (!isPlaceholder(node)) {
         current.words += U.wordCount(node.textContent || '');
       }
     });
@@ -1423,7 +1656,10 @@ window.FW = window.FW || {};
   function updateStatus() {
     if (!refs.status) return;
     U.clear(refs.status);
-    var text = lastResult ? lastResult.text : U.stripHtml(refs.editor.innerHTML);
+    /* Count the draft as it stands, not the last check's text: the count the
+       writer sees while typing has to agree with the count the checker
+       reports, and both leave placeholder lines out. */
+    var text = refs.editor ? textMap().text : '';
     var words = U.wordCount(text);
 
     refs.status.appendChild(stat(words.toLocaleString(), 'words'));
@@ -1637,6 +1873,7 @@ window.FW = window.FW || {};
     }
 
     function restore(index) {
+      pushUndo();
       S.restoreVersion(currentDoc.id, index);
       refs.editor.innerHTML = currentDoc.html;
       lastSnapshotAt = Date.now();
@@ -1688,8 +1925,31 @@ window.FW = window.FW || {};
         if (!refs.editor.contains(sel.anchorNode)) return '';
         return sel.toString();
       },
+      /* The finished sentence the caret sits in, for tools that work on "the
+         passage" when nothing is selected — the paraphraser's panel used to
+         refuse a bare caret even though it claimed to work on the whole
+         draft. '' when the caret is in a heading or an empty paragraph. */
+      sentenceAtCaret: function () {
+        var found = sentenceAtCaretRange();
+        return found ? found.text : '';
+      },
+      /* Replace that sentence in place, so a paraphrase made from it can go
+         back where it came from without selecting it by hand first. */
+      replaceSentenceAtCaret: function (text, label) {
+        var found = sentenceAtCaretRange();
+        if (!found || !found.range) return false;
+        if (label) snapshotBefore(label);
+        pushUndo();
+        var sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(found.range);
+        document.execCommand('insertText', false, text);
+        onInput();
+        return true;
+      },
       replaceSelection: function (text, label) {
         if (label) snapshotBefore(label);
+        pushUndo();
         refs.editor.focus();
         document.execCommand('insertText', false, text);
         onInput();
@@ -1702,6 +1962,7 @@ window.FW = window.FW || {};
       },
       setHtml: function (html, label) {
         snapshotBefore(label || 'before a tool replaced the draft');
+        pushUndo();
         refs.editor.innerHTML = html;
         saveNow();
         runCheck();

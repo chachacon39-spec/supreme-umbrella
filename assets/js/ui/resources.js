@@ -85,10 +85,20 @@ window.FW = window.FW || {};
       });
     }
 
+    /* The search box is a query, not a brief: seed it with the first keyword
+       (a phrase built to be searched), not the topic — the topic used to be
+       the whole brief sentence, so the box opened pre-filled with a paragraph
+       and every library link carried it. Fall back to a short topic, then the
+       title, capped so a long title cannot do the same. */
+    function shortSeed(s, cap) {
+      s = String(s || '').trim();
+      if (s.length > cap) s = s.slice(0, cap).replace(/\s+\S*$/, '').trim();
+      return s;
+    }
     var seed = '';
     if (task && task.analysis) {
-      seed = task.analysis.meta.topic ||
-        (task.analysis.meta.keywords[0] && task.analysis.meta.keywords[0].term) || task.title;
+      seed = (task.analysis.meta.keywords[0] && task.analysis.meta.keywords[0].term) ||
+        shortSeed(task.analysis.meta.topic, 40) || shortSeed(task.title, 40);
     }
 
     var searchBox = el('input', {

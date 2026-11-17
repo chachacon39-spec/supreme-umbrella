@@ -154,6 +154,12 @@ window.FW = window.FW || {};
     if (orMore) return { min: num(orMore[1]), max: null, raw: orMore[0], floor: true };
     var orFewer = text.match(/(\d[\d,]{1,7})\s*words?\s+or\s+(?:fewer|less)\b/i);
     if (orFewer) return { min: null, max: num(orFewer[1]), raw: orFewer[0], ceiling: true };
+    /* "Write a 900-word article" states the count with a hyphen, not "900
+       words" — every branch above needs the unit after the number, so a
+       hyphenated count fell through to null and the panel reported no word
+       count at all. Same band as an exact count. */
+    var hyphenated = text.match(/\b(\d[\d,]{2,7})\s*[-–—]\s*word\s+(?:article|piece|post|essay|story|blog|guide|feature|review|draft|submission|manuscript|limit|maximum|cap)\b/i);
+    if (hyphenated) { var h = num(hyphenated[1]); return { min: Math.round(h * 0.95), max: Math.round(h * 1.1), raw: hyphenated[0] }; }
     var about = text.match(/(?:approx(?:imately)?\.?|around|about|roughly|~)\s*(\d[\d,]{1,7})\s*words?\b/i);
     if (about) { var n = num(about[1]); return { min: Math.round(n * 0.9), max: Math.round(n * 1.1), raw: about[0] }; }
     /* The branches below stay unit-required on purpose: with the unit optional,
@@ -245,6 +251,24 @@ window.FW = window.FW || {};
   }
 
   /* ---- keywords ---- */
+  /* The line a keyword list sits on keeps going after the list ends: the next
+     sentence or the next label ("Reading level: grade 8.") is not a keyword,
+     but the split below would make it one — a phantom the draft can never
+     contain, so keyword compliance could never reach 100%. Cut the line at
+     the first sentence or label boundary first. */
+  function keywordLine(s) {
+    s = String(s || '');
+    var cut = s.length;
+    var label = s.search(/\b(?:reading level|tone|audience|deadline|due date|length|format|word count|style|citation|banned)\s*:/i);
+    if (label !== -1) cut = Math.min(cut, label);
+    var re = /\.\s+(?=[A-Z])/g, m;
+    while ((m = re.exec(s)) !== null) {
+      var rest = s.slice(m.index + m[0].length).split(/[.:\n]/)[0];
+      if (rest.trim().split(/\s+/).length >= 2) { cut = Math.min(cut, m.index + 1); break; }
+    }
+    return s.slice(0, cut);
+  }
+
   function findKeywords(text) {
     var out = [];
     /* \s spans newlines, so "keywords" ending one line bound to the hyphen
@@ -253,13 +277,13 @@ window.FW = window.FW || {};
        guideline — the keyword the piece was measured for density against.
        The label and its separator have to share a line. */
     matchAll(/(?:primary |target |focus |main )?keywords?[ \t]*[:\-][ \t]*([^\n]+)/gi, text).forEach(function (m) {
-      rejoinPlaceNames(m[1].split(/[,;|]/)).forEach(function (k) {
-        k = k.trim().replace(/^["'“”]|["'“”]$/g, '');
+      rejoinPlaceNames(keywordLine(m[1]).split(/[,;|]/)).forEach(function (k) {
+        k = k.trim().replace(/[.]+$/, '').replace(/^["'“”]|["'“”]$/g, '');
         if (k && k.length < 60) out.push({ term: k, primary: /primary|focus|main|target/i.test(m[0]) });
       });
     });
     matchAll(/(?:seo|search) (?:term|phrase)s?[ \t]*[:\-][ \t]*([^\n]+)/gi, text).forEach(function (m) {
-      m[1].split(/[,;|]/).forEach(function (k) { k = k.trim(); if (k) out.push({ term: k, primary: false }); });
+      keywordLine(m[1]).split(/[,;|]/).forEach(function (k) { k = k.trim().replace(/[.]+$/, ''); if (k) out.push({ term: k, primary: false }); });
     });
     matchAll(/["“]([^"”\n]{4,50})["”]\s*(?:keyword|phrase|as the (?:main|primary) (?:keyword|term))/gi, text)
       .forEach(function (m) { out.push({ term: m[1].trim(), primary: true }); });
@@ -283,17 +307,30 @@ window.FW = window.FW || {};
   }
 
   function findAudience(text) {
+    /* The audience is a label for who reads it, not the sentence describing
+       them: "amateur stargazers and hobby astronomers who want to find
+       planets..." becomes a hundred-character clause that then lands whole in
+       headlines and the benefit slot. Keep the people, drop the clause, and
+       cap the label so it stays a label. */
+    function trimAudience(s) {
+      if (!s) return s;
+      var cut = String(s).search(/\s+(?:who|that|which)\s+/i);
+      if (cut !== -1) s = String(s).slice(0, cut);
+      s = String(s).trim().replace(/[,;:]+$/, '');
+      if (s.length > 40) s = s.slice(0, 40).replace(/\s+\S*$/, '').trim();
+      return s;
+    }
     var m = text.match(/(?:target audience|audience|readership|reader persona|written for|aimed at|for an audience of)\s*(?:is|are|:|-)?\s*([^\n.;]{3,90})/i);
-    if (m) { var first = plausibleAudience(m[1]); if (first) return first; }
+    if (m) { var first = plausibleAudience(m[1]); if (first) return trimAudience(first); }
     /* "Our readers include working journalists and news consumers" names an
        audience without the label-and-colon shape a portal brief uses, and read
        as none at all. The linking verb is required: "essays that help readers
        better understand how news works" is a sentence about the piece, not a
        description of who is reading it. */
     m = text.match(/\b(?:our |the )?readers?\s+(?:are|include[sd]?|comprise|consist of|skew|tend to be)\s+([^\n.;]{3,90})/i);
-    if (m) { var a = plausibleAudience(m[1]); if (a) return a; }
+    if (m) { var a = plausibleAudience(m[1]); if (a) return trimAudience(a); }
     var m2 = text.match(/\bfor\s+((?:small[- ]business owners|marketers|developers|investors|students|parents|beginners|executives|clinicians|teachers|founders|freelancers|homeowners|retail investors)[^\n.;]{0,40})/i);
-    return m2 ? m2[1].trim() : null;
+    return m2 ? trimAudience(m2[1].trim()) : null;
   }
 
   /* ---- tone ---- */
@@ -864,14 +901,32 @@ window.FW = window.FW || {};
   /* Topics get dropped into noun slots in the style templates, so a leading
      "whether"/"if" reads badly ("If whether solar pays back…"). Trim it. */
   function cleanTopic(s) {
-    return String(s).trim()
+    var out = String(s).trim()
       .replace(/^["'“”]|["'“”.]$/g, '')
       /* Portal titles arrive as "Task #462-B — (300 words) How Salesforce…".
          The scaffolding is for the portal; the templates want the subject. */
       .replace(/^task\s*#?\s*[\w-]+\s*[–—:.-]?\s*/i, '')
       .replace(/^\(\s*\d[\d,]*\s*words?\s*\)\s*[–—:.-]?\s*/i, '')
       .replace(/^(?:whether(?: or not)?|if)\s+/i, '')
+      /* "Write a 900-word article for Astronomy Magazine about how to spot the
+         planets..." — the instruction is not the topic. Strip the
+         write-the-piece prefix and the outlet it names, and keep the subject. */
+      .replace(/^(?:please\s+)?(?:write|draft|compose|create|prepare|produce)\s+(?:an?\s+|the\s+)?(?:\d[\d,]*\s*[-–]\s*word\s+|\d[\d,]*\s+words?\s+)?(?:article|piece|post|essay|story|blog\s+post|feature|guide|review)?\s*(?:for\s+(?:the\s+)?[A-Z][\w'&.\-]*(?:\s+(?:[A-Z][\w'&.\-]*|and|of|the)){0,5}?\s+)?(?:about|on|covering|exploring|examining)\s+/i, '')
       .trim();
+    /* The topic is the subject, not the sentence that states it: cut at the
+       first clause boundary ("...on a balcony and how to use them...") and
+       cap at 70 characters on a word boundary, so the topic slot in headlines
+       never carries the whole brief. A comma only cuts when the part before
+       it is already a full phrase — "Salt, pepper, and other spices" is a
+       list, not a sentence with a tail. */
+    var cut = out.search(/\s+and\s+(?=how to |with |in |for |by |using |on |to )/i);
+    if (cut === -1) {
+      var punct = out.search(/[,;:]\s/);
+      if (punct >= 20) cut = punct;
+    }
+    if (cut !== -1) out = out.slice(0, cut).trim();
+    if (out.length > 70) out = out.slice(0, 70).replace(/\s+\S*$/, '').trim();
+    return out;
   }
 
   function findTopic(text, title) {
@@ -879,7 +934,7 @@ window.FW = window.FW || {};
     if (m) return cleanTopic(m[1]);
     if (title && title !== 'Untitled assignment') return cleanTopic(title);
     var first = U.splitSentences(String(text || '').trim())[0];
-    return first ? first.slice(0, 120) : '';
+    return first ? cleanTopic(first) : '';
   }
 
   function suggestPersona(text) {
