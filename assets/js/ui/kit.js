@@ -8,6 +8,9 @@ window.FW = window.FW || {};
   function toast(message, kind) {
     var host = document.getElementById('toasts');
     if (!host) return;
+    /* One toast at a time: a new message replaces the one showing, instead of
+       stacking underneath the header where the old one lingered over it. */
+    while (host.firstChild) host.removeChild(host.firstChild);
     var node = el('div', { class: 'toast' + (kind === 'error' ? ' is-error' : ''), text: message });
     host.appendChild(node);
     setTimeout(function () {

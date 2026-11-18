@@ -181,10 +181,15 @@ window.FW = window.FW || {};
     if (!t) return;
     state.tasks = state.tasks.filter(function (x) { return x.id !== id; });
     if (t.docId) delete state.docs[t.docId];
-    if (state.activeTaskId === id) state.activeTaskId = null;
+    var wasActive = state.activeTaskId === id;
+    if (wasActive) state.activeTaskId = null;
     persist();
     emit('tasks:changed', state.tasks);
     emit('task:removed', t);
+    /* The detail panel and the studio only re-render on activeTask:changed,
+       so without this a deleted assignment stayed on screen as if it were
+       still there. */
+    if (wasActive) emit('activeTask:changed', null);
   }
 
   function duplicateTask(id) {
@@ -286,7 +291,7 @@ window.FW = window.FW || {};
       at: Date.now(),
       html: content,
       label: label || 'snapshot',
-      words: U.wordCount(U.stripHtml(content))
+      words: U.proseWordCount(content)
     };
     doc.history.unshift(entry);
     trimHistory(doc);
@@ -391,7 +396,7 @@ window.FW = window.FW || {};
   function totalWords() {
     var total = 0;
     Object.keys(state.docs).forEach(function (id) {
-      total += U.wordCount(U.stripHtml(state.docs[id].html || ''));
+      total += U.proseWordCount(state.docs[id].html || '');
     });
     return total;
   }

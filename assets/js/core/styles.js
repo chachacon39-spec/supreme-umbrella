@@ -12,6 +12,14 @@ window.FW = window.FW || {};
     var meta = (analysis && analysis.meta) || {};
     var topic = meta.topic || task.title || 'the subject';
     var kw = (meta.keywords && meta.keywords[0] && meta.keywords[0].term) || topic;
+    /* The benefit slot inherits the whole audience clause unless it is
+       shortened here — "what amateur stargazers and hobby astronomers who
+       want to find planets... actually want" is a headline on its own. */
+    var benefit = 'the result you are after';
+    if (meta.audience) {
+      var shortAud = String(meta.audience).split(/\s+and\s+/)[0];
+      benefit = 'what ' + shortAud + ' actually want';
+    }
     return {
       TOPIC: topic,
       SUBJECT: U.titleCase(String(topic).split(/[,:—-]/)[0].trim()) || 'the subject',
@@ -21,7 +29,7 @@ window.FW = window.FW || {};
       YEAR: String(new Date().getFullYear()),
       NUMBER: String(3 + Math.floor(rnd() * 8)),
       OBSTACLE: U.pick(OBSTACLES, rnd),
-      BENEFIT: meta.audience ? ('what ' + meta.audience + ' actually want') : 'the result you are after',
+      BENEFIT: benefit,
       RIVAL: 'the obvious alternative',
       VERB: 'shift'
     };
@@ -138,13 +146,25 @@ window.FW = window.FW || {};
         if (!hasAudience && (h.indexOf('{AUDIENCE}') !== -1 || h.indexOf('{BENEFIT}') !== -1)) return false;
         return true;
       });
-    return U.pickN(pool, n || 3, rnd).map(function (h) {
-      var filled = fill(h, tok);
+    /* A filled headline is only as short as its longest slot, and the topic
+       and audience used to carry whole sentences — the walkthrough got a
+       154-character headline cut off mid-word. Prefer short headlines, fall
+       back to longer ones only when the pool is thin, and never truncate: a
+       long headline is offered whole or not at all. */
+    var filled = U.unique(pool.map(function (h) {
+      var f = fill(h, tok);
       /* Headline case, but leave any sentence-ending punctuation structure alone. */
-      return filled.split(/([.:!?] )/).map(function (chunk, i) {
+      return f.split(/([.:!?] )/).map(function (chunk, i) {
         return i % 2 ? chunk : U.titleCase(chunk);
       }).join('');
+    }).filter(function (h) { return h.indexOf('{') === -1; }));
+    var want = n || 3, out = [];
+    [90, 110, Infinity].forEach(function (cap) {
+      if (out.length >= want) return;
+      var tier = filled.filter(function (h) { return h.length <= cap && out.indexOf(h) === -1; });
+      U.pickN(tier, want - out.length, rnd).forEach(function (h) { out.push(h); });
     });
+    return out;
   }
 
   /* Adapt the persona's voice note to what the brief demands. */

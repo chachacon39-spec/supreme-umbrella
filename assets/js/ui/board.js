@@ -89,7 +89,9 @@ window.FW = window.FW || {};
     var persona = FW.personas.get(task.personaId);
     var days = U.daysUntil(task.deadline);
     var doc = S.getDoc(task.docId);
-    var written = doc ? U.wordCount(U.stripHtml(doc.html)) : 0;
+    /* Prose only: a fresh outline's placeholder lines are not words the
+       writer has written, and the card has to agree with the status bar. */
+    var written = doc ? U.proseWordCount(doc.html) : 0;
 
     var dueClass = days === null ? '' : days < 0 ? 'due-late' : days <= 2 ? 'due-soon' : '';
     var meta = [];
@@ -574,7 +576,7 @@ window.FW = window.FW || {};
       });
       /* Keep whatever was there, then mark the fresh outline as its own
          restore point so a mangled draft can go back to a clean scaffold. */
-      if (existing.length > 40) S.snapshotDoc(doc.id, 'before the outline was replaced');
+      if (existing.length) S.snapshotDoc(doc.id, 'before the outline was replaced');
       S.saveDoc(doc.id, html.join('\n'));
       S.snapshotDoc(doc.id, variant.label + ' outline');
       S.moveTask(taskId, 'drafting', null);
